@@ -9,41 +9,48 @@ import math
 import torch
 import torch.nn as nn 
 import torch.nn.functional as F 
+from torchvision import models
 
 
-class MultiHeadSelfAttention(nn.Module):
+MODEL_HELPER = {
+	'resnet18': models.resnet18
+}
 
-	def __init__(self, in_dim, hidden_dim, heads=9, pre_norm=False):
+
+class BertSelfAttention(nn.Module):
+
+	def __init__(self, in_dim, model_dim, heads=9, pre_norm=False):
 		
-		super(MultiHeadSelfAttention, self).__init__()
-		self.hidden_dim = hidden_dim
+		super(BertSelfAttention, self).__init__()
+		self.model_dim = model_dim
 		self.heads = heads
-		self.query = nn.Linear(in_dim, heads*hidden_dim)
-		self.key = nn.Linear(in_dim, heads*hidden_dim)
-		self.value = nn.Linear(in_dim, heads*hidden_dim)
-		self.out = nn.Linear(heads*hidden_dim, in_dim)
+		self.query = nn.Linear(in_dim, heads*model_dim)
+		self.key = nn.Linear(in_dim, heads*model_dim)
+		self.value = nn.Linear(in_dim, heads*model_dim)
+		self.out = nn.Linear(heads*model_dim, in_dim)
 		self.norm = nn.LayerNorm(in_dim)
 		self.pre_norm = pre_norm
 
 
 	def forward(self, x):
-		''' Input has shape (bs, n, in_dim) '''
+		''' Input has shape (bs, h, w, in_dim) '''
 		
 		if self.pre_norm:
 			x = self.norm(x)
 
-		Q = self.query(x)																			  # Q -> (bs, n, heads*hidden_dim)
-		K = self.key(x)																				  # K -> (bs, n, heads*hidden_dim)
-		V = self.value(x)																			  # V -> (bs, n, heads*hidden_dim)
+		Q = self.query(x)															# Q -> (bs, n, heads*model_dim)
+		K = self.key(x)																# K -> (bs, n, heads*model_dim)
+		V = self.value(x)															# V -> (bs, n, heads*model_dim)
 
-		Q_ = torch.cat(Q.split(self.hidden_dim, 2), dim=0)										      # Q_ -> (bs*heads, n, hidden_dim)
-		K_ = torch.cat(K.split(self.hidden_dim, 2), dim=0)											  # K_ -> (bs*heads, n, hidden_dim)
-		V_ = torch.cat(V.split(self.hidden_dim, 2), dim=0)											  # V_ -> (bs*heads, n, hidden_dim)
-		att_scores = F.softmax(torch.bmm(Q_, K_.transpose(1, 2))/math.sqrt(self.hidden_dim), dim=-1)  # att_scores -> (bs*heads, n, n)
+		Q_ = torch.cat(Q.split(self.model_dim, -1), dim=0)							# Q_ -> (bs*heads, n, model_dim)
+		K_ = torch.cat(K.split(self.model_dim, -1), dim=0)							# K_ -> (bs*heads, n, model_dim)
+		V_ = torch.cat(V.split(self.model_dim, -1), dim=0)							# V_ -> (bs*heads, n, model_dim)
+		correlation = torch.einsum('bid,bjd->bij', Q_, K_)		  					
+		att_scores = F.softmax(correlation/math.sqrt(self.model_dim), dim=-1)  	# att_scores -> (bs*heads, n, n)
 		
-		logits = torch.bmm(att_scores, V_)															  # logits -> (bs*heads, n, hidden_dim)
-		logits = torch.cat(logits.split(Q.size(0), 0), dim=2)										  # logits -> (bs, n, heads*hidden_dim)
-		logits = self.out(logits)																	  # logits -> (bs, n, in_dim)
+		logits = torch.bmm(att_scores, V_)											# logits -> (bs*heads, n, model_dim)
+		logits = torch.cat(logits.split(Q.size(0), 0), dim=2)						# logits -> (bs, n, heads*model_dim)
+		logits = self.out(logits)													# logits -> (bs, n, in_dim)
 
 		# Residual connection
 		out = logits + x
@@ -85,10 +92,10 @@ class Feedforward(nn.Module):
 
 class EncoderBlock(nn.Module):
 
-	def __init__(self, in_dim, hidden_dim, mha_heads=9, pre_norm=False):
+	def __init__(self, in_dim, model_dim, ff_dim, mha_heads=9, pre_norm=False):
 		super(EncoderBlock, self).__init__()
-		self.attention = MultiHeadSelfAttention(in_dim, hidden_dim, mha_heads, pre_norm)
-		self.feedfwd = Feedforward(in_dim, hidden_dim, pre_norm)
+		self.attention = BertSelfAttention(in_dim, model_dim, mha_heads, pre_norm)
+		self.feedfwd = Feedforward(in_dim, ff_dim, pre_norm)
 
 	def forward(self, x):
 		x, att_scores = self.attention(x)
@@ -106,38 +113,49 @@ class BertEncoder(nn.Module):
 		self.blocks = nn.ModuleList([
 			EncoderBlock(
 				in_dim=config['in_dim'], 
-				hidden_dim=config['model_dim'], 
+				model_dim=config['model_dim'], 
+				ff_dim=config['ff_dim'],
 				mha_heads=config['mha_heads'], 
 				pre_norm=config['pre_norm']
 			) for i in range(self.num_blocks)
 		])
 
 
-	def forward(self, x):
+	def forward(self, x, return_attn_scores=False):
 
 		att_scores = {}
 		for i in range(self.num_blocks):
 			x, att = self.blocks[i](x)
-			att_scores[f'block_{i}'] = att
+			att_scores[f'layer_{i}'] = att
 
-		return x, att_scores
+		# Mean pool the output along pixel dimension
+		out = x.mean(dim=1)
+
+		if return_attn_scores:
+			return out, att_scores
+		else:
+			return out
 
 
+class ConvBottom(nn.Module):
 
-if __name__ == '__main__':
+	def __init__(self, name='resnet18', block=1, pretrained=False):
+		super(ConvBottom, self).__init__()	
+		assert name in list(MODEL_HELPER.keys()), f'name should be one of {list(MODEL_HELPER.keys())}'
+		self.base_model = MODEL_HELPER[name](pretrained=pretrained)
+		self.bottom = nn.Sequential(*list(self.base_model.children())[0:4+block])
 
-	config = {
-		'in_dim': 3,
-		'model_dim': 64,
-		'mha_heads': 9,
-		'pre_norm': False,
-		'num_encoder_blocks': 6
-	}
+	def forward(self, x):
+		out = self.bottom(x)			# For resnet18 and CIFAR10, output has size (bs, 64, 8, 8)	
+		bs, c, h, w = out.size()
+		return out.view(bs, -1, c)
 
-	encoder = BertEncoder(config)
-	x = torch.rand((4, 16, 3))
-	out, att_scores = encoder(x)
-	print(out.size())
-	print()
-	for k, v in att_scores.items():
-		print(v.size())
+
+class ClassificationHead(nn.Module):
+
+	def __init__(self, in_dim, n_classes):
+		super(ClassificationHead, self).__init__()
+		self.fc = nn.Linear(in_dim, n_classes)
+
+	def forward(self, x):
+		return F.log_softmax(self.fc(x), dim=-1)
