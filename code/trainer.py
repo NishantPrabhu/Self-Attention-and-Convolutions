@@ -147,7 +147,7 @@ class Trainer:
 		for name, attn in attn_scores.items():
 
 			# Average attention over pixels
-			attn = attn.mean(dim=0).detach().cpu().numpy().mean(axis=2)		# Size (n_heads, n_pix)
+			attn = attn.mean(dim=0).detach().cpu().numpy().mean(axis=1)		# Size (n_heads, n_pix)
 			
 			for i in range(attn.shape[0]):
 				fig.add_subplot(layers, heads, count)
