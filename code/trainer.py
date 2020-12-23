@@ -12,14 +12,16 @@ import wandb
 import os
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+from skimage.transform import resize
 
 
 class Trainer:
 
-	def __init__(self, config, device):
+	def __init__(self, config, output_dir, device):
 		
 		self.config = config
 		self.device = device
+		self.output_dir = output_dir
 
 		# Networks and optimizers
 		self.encoder = networks.BertEncoder(self.config['bert_encoder']).to(self.device)
@@ -86,7 +88,7 @@ class Trainer:
 			'optim': self.optim.state_dict(),
 			'scheduler': self.scheduler.state_dict()
 		}
-		torch.save(state, '../saved_data/last_state.ckpt')
+		torch.save(state, os.path.join(self.output_dir, 'last_state.ckpt'))
 
 
 	def save_data(self):
@@ -96,13 +98,13 @@ class Trainer:
 			'conv': self.conv_bottom.state_dict(),
 			'clf': self.clf_head.state_dict()
 		}
-		torch.save(data, '../saved_data/best_model.ckpt')
+		torch.save(data, os.path.join(self.output_dir, 'best_model.ckpt'))
 
 
 	def load_state(self):
 		
-		if os.path.exists('../saved_data/last_state.ckpt'):
-			last_state = torch.load('../saved_data/last_state.ckpt')
+		if os.path.exists(os.path.join(self.output_dir, 'last_state.ckpt')):
+			last_state = torch.load(os.path.join(self.output_dir, 'last_state.ckpt'))
 			done_epochs = last_state['epoch']-1
 			self.encoder.load_state_dict(last_state['encoder'])
 			self.conv_bottom.load_state_dict(last_state['conv']) 
@@ -130,8 +132,10 @@ class Trainer:
 		''' Generate attention on a batch of 100 images and plot them '''	
 
 		batch = next(iter(val_loader))
-		img = batch[0].to(self.device)
+		img = batch[0][1].unsqueeze(0).to(self.device)			# It's a ship
+
 		fvecs, attn_scores = self.encoder(self.conv_bottom(img), return_attn_scores=True)
+		img_size = self.conv_bottom.bottom(img).size()
 
 		# attn_scores is a dict with num_encoder_blocks items 
 		# Each item value has size (batch_size, num_heads, num_pixels, num_pixels)
@@ -142,17 +146,18 @@ class Trainer:
 
 		for name, attn in attn_scores.items():
 
-			# Average attention over batch
-			attn = attn.mean(dim=0).detach().cpu().numpy()		# Size (n_heads, n_pix, n_pix)
+			# Average attention over pixels
+			attn = attn.mean(dim=0).detach().cpu().numpy().mean(axis=2)		# Size (n_heads, n_pix)
 			
 			for i in range(attn.shape[0]):
 				fig.add_subplot(layers, heads, count)
-				plt.imshow(attn[i], cmap='gray')
+				img = attn[i].reshape(img_size[-1], img_size[-2])
+				plt.imshow(img, cmap='Blues')
 				plt.axis('off')
 				count += 1
 
 		plt.tight_layout(pad=1)
-		plt.savefig(f'../saved_data/plots/attention_maps_{epoch+1}', pad_inches=0.05)
+		plt.savefig(os.path.join(self.output_dir, f'attn_map_{epoch+1}.png'), pad_inches=0.05)
 
 
 	def train(self, train_loader, val_loader):
@@ -164,7 +169,7 @@ class Trainer:
 		for epoch in range(self.config['epochs']-done_epochs):
 
 			# Change learning rate
-			self.adjust_learning_rate(epoch)
+			self.adjust_learning_rate(epoch+1)
 
 			train_losses, train_correct_count = [], 0
 			pbar = tqdm(total=len(train_loader), desc=f"[Train epoch] {epoch+1} - [LR] {round(self.optim.param_groups[0]['lr'], 4)}")

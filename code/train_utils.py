@@ -25,10 +25,6 @@ def get_scheduler(config, optimizer):
     name = config.get("name", None)
     warmup_epochs = config.get("warmup_epochs", 0)
 
-    if warmup_epochs > 0:
-        for group in optimizer.param_groups:
-            group["lr"] = 1e-12 / warmup_epochs * group["lr"]
-
     if name is not None:
         if name == "cosine":
             scheduler = lr_scheduler.CosineAnnealingLR(

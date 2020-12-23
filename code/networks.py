@@ -46,7 +46,7 @@ class BertSelfAttention(nn.Module):
 		K_ = torch.cat(K.split(self.model_dim, -1), dim=0)							# K_ -> (bs*heads, n, model_dim)
 		V_ = torch.cat(V.split(self.model_dim, -1), dim=0)							# V_ -> (bs*heads, n, model_dim)
 		correlation = torch.einsum('bid,bjd->bij', Q_, K_)		  					
-		att_scores = F.softmax(correlation/math.sqrt(self.model_dim), dim=-1)  	# att_scores -> (bs*heads, n, n)
+		att_scores = F.softmax(correlation/math.sqrt(self.model_dim), dim=-1)  		# att_scores -> (bs*heads, n, n)
 		
 		logits = torch.bmm(att_scores, V_)											# logits -> (bs*heads, n, model_dim)
 		logits = torch.cat(logits.split(Q.size(0), 0), dim=2)						# logits -> (bs, n, heads*model_dim)
@@ -143,7 +143,12 @@ class ConvBottom(nn.Module):
 		super(ConvBottom, self).__init__()	
 		assert name in list(MODEL_HELPER.keys()), f'name should be one of {list(MODEL_HELPER.keys())}'
 		self.base_model = MODEL_HELPER[name](pretrained=pretrained)
-		self.bottom = nn.Sequential(*list(self.base_model.children())[0:4+block])
+		self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1, bias=False)
+		self.bn1 = nn.BatchNorm2d(64)
+		self.relu1 = nn.ReLU()
+		self.maxpool1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1, dilation=1, ceil_mode=False)
+		self.res_layers = list(self.base_model.children())[4:4+block]
+		self.bottom = nn.Sequential(self.conv1, self.bn1, self.relu1, self.maxpool1, *self.res_layers)
 
 	def forward(self, x):
 		out = self.bottom(x)			# For resnet18 and CIFAR10, output has size (bs, 64, 8, 8)	

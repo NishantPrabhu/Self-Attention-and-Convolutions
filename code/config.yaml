@@ -40,12 +40,12 @@ dataset:
   
   train_transform:
     random_flip:
-    gaussian_blur:
-      sigma: [0.1, 2.0]
-      apply_prob: 0.5
-    random_resized_crop:
-      size: 32
-      scale: [0.2, 1.0]
+    # gaussian_blur:
+    #   sigma: [0.1, 2.0]
+    #   apply_prob: 0.5
+    # random_resized_crop:
+    #   size: 32
+    #   scale: [0.2, 1.0]
     to_tensor:
     normalize:
       mean: [0.4914, 0.4822, 0.4465]
