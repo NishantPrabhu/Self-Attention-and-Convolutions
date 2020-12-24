@@ -1,0 +1,84 @@
+[Train epoch] 1 - [LR] 0.0067:   0%|          | 0/500 [00:00<?, ?it/s]
+[INFO] No saved state found, starting fresh
+
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+[W TensorIterator.cpp:918] Warning: Mixed memory format inputs detected while calling the operator. The operator will output contiguous tensor even if some of the inputs are in channels_last format. (function operator())
+[Train epoch] 1 - [LR] 0.0067:   0%|          | 1/500 [00:00<02:11,  3.80it/s]torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+[Train epoch] 1 - [LR] 0.0067:   0%|          | 2/500 [00:00<01:58,  4.21it/s]torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+[Train epoch] 1 - [LR] 0.0067:   1%|          | 3/500 [00:00<01:46,  4.66it/s]torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+[Train epoch] 1 - [LR] 0.0067:   1%|          | 4/500 [00:00<01:37,  5.08it/s]torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+[Train epoch] 1 - [LR] 0.0067:   1%|          | 5/500 [00:00<01:31,  5.41it/s]torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+[Train epoch] 1 - [LR] 0.0067:   1%|          | 6/500 [00:01<01:26,  5.69it/s]torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+[Train epoch] 1 - [LR] 0.0067:   1%|▏         | 7/500 [00:01<01:23,  5.89it/s]torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+[Train epoch] 1 - [LR] 0.0067:   2%|▏         | 8/500 [00:01<01:21,  6.03it/s]torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+[Train epoch] 1 - [LR] 0.0067:   2%|▏         | 9/500 [00:01<01:20,  6.13it/s]torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+[Train epoch] 1 - [LR] 0.0067:   2%|▏         | 10/500 [00:01<01:18,  6.22it/s]torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+[Train epoch] 1 - [LR] 0.0067:   2%|▏         | 11/500 [00:01<01:17,  6.27it/s]torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+torch.Size([100, 8, 8, 576])
+Traceback (most recent call last):
+  File "main.py", line 46, in <module>
+    model.train(train_loader, val_loader)
+  File "/home/nishant/Desktop/Desktop/Papers2code/Implementations/Self-Attention-and-Convolutions/code/trainer.py", line 179, in train
+    train_loss, train_correct = self.train_one_step(batch)
+  File "/home/nishant/Desktop/Desktop/Papers2code/Implementations/Self-Attention-and-Convolutions/code/trainer.py", line 62, in train_one_step
+    correct = pred.eq(labels.view_as(pred)).sum().item()
+KeyboardInterrupt

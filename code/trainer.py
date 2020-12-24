@@ -12,7 +12,6 @@ import wandb
 import os
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-from skimage.transform import resize
 
 
 class Trainer:
@@ -25,8 +24,8 @@ class Trainer:
 
 		# Networks and optimizers
 		self.encoder = networks.BertEncoder(self.config['bert_encoder']).to(self.device)
-		self.conv_bottom = networks.ConvBottom(**self.config['conv_bottom']).to(self.device)
-		self.clf_head = networks.ClassificationHead(**self.config['clf_head']).to(self.device)
+		self.conv_bottom = networks.ConvBottom(self.config['conv_bottom']).to(self.device)
+		self.clf_head = networks.ClassificationHead(self.config['clf_head']).to(self.device)
 		
 		self.optim = train_utils.get_optimizer(
 			config = self.config['optimizer'], 
@@ -134,8 +133,9 @@ class Trainer:
 		batch = next(iter(val_loader))
 		img = batch[0][1].unsqueeze(0).to(self.device)			# It's a ship
 
-		fvecs, attn_scores = self.encoder(self.conv_bottom(img), return_attn_scores=True)
-		img_size = self.conv_bottom.bottom(img).size()
+		with torch.no_grad():
+			fvecs, attn_scores = self.encoder(self.conv_bottom(img), return_attn_scores=True)
+		_, h, w, _ = self.conv_bottom(img).size() 
 
 		# attn_scores is a dict with num_encoder_blocks items 
 		# Each item value has size (batch_size, num_heads, num_pixels, num_pixels)
@@ -147,12 +147,13 @@ class Trainer:
 		for name, attn in attn_scores.items():
 
 			# Average attention over pixels
-			attn = attn.mean(dim=0).detach().cpu().numpy().mean(axis=1)		# Size (n_heads, n_pix)
+			# Attention has size (1, h, w, heads, h, w)
+			# After the line below, it'll have shape (heads, h, w)
+			attn = attn.mean(dim=0).view(-1, heads, h, w).mean(dim=0).detach().cpu().numpy()
 			
 			for i in range(attn.shape[0]):
 				fig.add_subplot(layers, heads, count)
-				img = attn[i].reshape(img_size[-1], img_size[-2])
-				plt.imshow(img, cmap='Blues')
+				plt.imshow(attn[i], cmap='Reds')
 				plt.axis('off')
 				count += 1
 
