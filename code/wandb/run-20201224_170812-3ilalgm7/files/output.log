@@ -1,16 +1,0 @@
-
-[INFO] No saved state found, starting fresh
-
-[Train epoch] 1 - [LR] 0.0067:   0%|          | 0/500 [00:00<?, ?it/s]torch.Size([100, 8, 64])
-Traceback (most recent call last):
-  File "main.py", line 46, in <module>
-    model.train(train_loader, val_loader)
-  File "/home/nishant/Desktop/Desktop/Papers2code/Implementations/Self-Attention-and-Convolutions/code/trainer.py", line 179, in train
-    train_loss, train_correct = self.train_one_step(batch)
-  File "/home/nishant/Desktop/Desktop/Papers2code/Implementations/Self-Attention-and-Convolutions/code/trainer.py", line 52, in train_one_step
-    out = self.clf_head(self.encoder(self.conv_bottom(img), return_attn_scores=False))
-  File "/usr/local/lib/python3.8/dist-packages/torch/nn/modules/module.py", line 722, in _call_impl
-    result = self.forward(*input, **kwargs)
-  File "/home/nishant/Desktop/Desktop/Papers2code/Implementations/Self-Attention-and-Convolutions/code/networks.py", line 330, in forward
-    bs, h, w, c = x.size()
-ValueError: not enough values to unpack (expected 4, got 3)
