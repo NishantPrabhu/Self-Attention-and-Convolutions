@@ -7,6 +7,7 @@ BERT definition
 
 import math
 import torch
+import numbers
 import torch.nn as nn 
 import torch.nn.functional as F 
 from torchvision import models
@@ -15,6 +16,74 @@ from torchvision import models
 MODEL_HELPER = {
 	'resnet18': models.resnet18
 }
+
+
+def gaussian_kernel_2d(mean, std_inv, size):
+    """Create a 2D gaussian kernel
+    Args:
+        mean: center of the gaussian filter (shift from origin)
+            (2, ) vector
+        std_inv: standard deviation $Sigma^{-1/2}$
+            can be a single number, a vector of dimension 2, or a 2x2 matrix
+        size: size of the kernel
+            pair of integer for width and height
+            or single number will be used for both width and height
+    Returns:
+        A gaussian kernel of shape size.
+    """
+    if type(mean) is torch.Tensor:
+        device = mean.device
+    elif type(std_inv) is torch.Tensor:
+        device = std_inv.device
+    else:
+        device = "cpu"
+
+    # repeat the size for width, height if single number
+    if isinstance(size, numbers.Number):
+        width = height = size
+    else:
+        width, height = size
+
+    # expand std to (2, 2) matrix
+    if isinstance(std_inv, numbers.Number):
+        std_inv = torch.tensor([[std_inv, 0], [0, std_inv]], device=device)
+    elif std_inv.dim() == 0:
+        std_inv = torch.diag(std_inv.repeat(2))
+    elif std_inv.dim() == 1:
+        assert len(std_inv) == 2
+        std_inv = torch.diag(std_inv)
+
+    # Enforce PSD of covariance matrix
+    covariance_inv = std_inv.transpose(0, 1) @ std_inv
+    covariance_inv = covariance_inv.float()
+
+    # make a grid (width, height, 2)
+    X = torch.cat(
+        [
+            t.unsqueeze(-1)
+            for t in reversed(
+                torch.meshgrid(
+                    [torch.arange(s, device=device) for s in [width, height]]
+                )
+            )
+        ],
+        dim=-1,
+    )
+    X = X.float()
+
+    # center the gaussian in (0, 0) and then shift to mean
+    X -= torch.tensor([(width - 1) / 2, (height - 1) / 2], device=device).float()
+    X -= mean.float()
+
+    # does not use the normalize constant of gaussian distribution
+    Y = torch.exp((-1 / 2) * torch.einsum("xyi,ij,xyj->xy", [X, covariance_inv, X]))
+
+    # normalize
+    # TODO could compute the correct normalization (1/2pi det ...)
+    # and send warning if there is a significant diff
+    # -> part of the gaussian is outside the kernel
+    Z = Y / Y.sum()
+    return Z
 
 
 class BertSelfAttention(nn.Module):
@@ -95,13 +164,13 @@ class Learned2dRelativeSelfAttention(nn.Module):
 
 		# Linear transforms for query and key
 		if self.use_attention_data or self.query_positional_score:
-			self.query = nn.Linear(self.in_dim, self.model_dim*self.heads)
+			self.query = nn.Linear(self.in_dim, self.model_dim*self.heads, bias=False)
 
 		if self.use_attention_data:
-			self.key = nn.Linear(self.in_dim, self.model_dim*self.heads)
+			self.key = nn.Linear(self.in_dim, self.model_dim*self.heads, bias=False)
 
 		self.dropout = nn.Dropout(config['attention_dropout_prob'])
-		self.value = nn.Linear(self.in_dim*self.heads, self.in_dim)
+		self.value = nn.Linear(self.in_dim*self.heads, self.in_dim, bias=False)
 
 		# Relative positional encoding
 		deltas = torch.arange(max_position_embeddings).view(-1, 1) + torch.arange(max_position_embeddings).view(1, -1)
@@ -221,6 +290,170 @@ class Learned2dRelativeSelfAttention(nn.Module):
 			return output_value
 
 
+class GaussianSelfAttention(nn.Module):
+
+	def __init__(self, config):
+		
+		super(GaussianSelfAttention, self).__init__()
+		self.attention_blur_trick = config['attention_gaussian_blur_trick']			# They're G-blurring the final tensor for some reason
+		self.isotropic_gaussian = config['attention_isotropic_gaussian']			# Circular spread of attention PDF
+		self.mu_init_noise = config['mu_init_noise']								# Means initialization
+		self.sigma_init_noise = config['sigma_init_noise']							# Std dev initialization
+		self.config = config 
+
+		self.heads = config['mha_heads']
+		self.in_dim = config['in_dim']
+		self.model_dim = config['model_dim']
+
+		# Initialize attention centers noisily around 0 and covariances
+		self.attention_centers = nn.Parameter(torch.zeros(self.heads, 2).normal_(0, self.mu_init_noise))
+
+		if self.isotropic_gaussian:
+			# Covariance is a c * I type diagonal matrix, so we maintain only one scalar
+			attention_spreads = 1 + torch.zeros(self.heads).normal_(0, self.sigma_init_noise)
+		
+		else:
+			# Why is it inverse covariance? The original code says so
+			attention_spreads = torch.eye(2).unsqueeze(0).repeat(self.heads, 1, 1)							# (n_heads, 2, 2)
+			attention_spreads += torch.zeros_like(attention_spreads).normal_(0, self.sigma_init_noise)		# Added noise
+
+		self.attention_spreads = nn.Parameter(attention_spreads)
+		self.value = nn.Linear(self.heads*self.in_dim, self.in_dim, bias=False)
+
+		# Gaussian blur trick. Not sure what benefit this gives
+		# relative encoding grid (delta_x, delta_y, delta_x**2, delta_y**2, delta_x * delta_y)
+		if self.attention_blur_trick:
+			MAX_WIDTH_HEIGHT = 50
+			range_ = torch.arange(MAX_WIDTH_HEIGHT)
+			grid = torch.cat([t.unsqueeze(-1) for t in torch.meshgrid([range_, range_])], dim=-1)			# (MWH, MWH, 2)
+			rel_idx = grid.unsqueeze(0).unsqueeze(0) - grid.unsqueeze(-2).unsqueeze(-2)						# (MWH, MWH, MWH, MWH, 2)
+			R = torch.cat([rel_idx, rel_idx**2, (rel_idx[..., 0] * rel_idx[..., 1]).unsqueeze(-1)], dim=-1)	# (MWH, MWH, MWH, MWH, MWH)
+			self.register_buffer('R', R.float())
+			self.dropout = nn.Dropout(config['attention_dropout_prob'])
+
+
+	def get_heads_target_vectors(self):
+
+		# This part extracts the elements of the covariance of the attention gaussians
+		# Key: Covariance -> [[a, b]
+		#                     [b, c]]
+
+		if self.isotropic_gaussian:
+			a = c = self.attention_spreads ** 2
+			b = torch.zeros_like(self.attention_spreads)
+		else:
+			inv_covariance = torch.einsum('hij,hkj->hik', [self.attention_spreads, self.attention_spreads])
+			a, b, c = inv_covariance[:, 0, 0], inv_covariance[:, 0, 1], inv_covariance[:, 1, 1]
+
+		mu_1, mu_2 = self.attention_centers[:, 0], self.attention_centers[:, 1]
+
+		# I don't know what this is
+		target = -0.5 * torch.stack([
+			-2 * (a*mu_1 + b*mu_2),
+			-2 * (c*mu_2 + b*mu_1),
+			a,
+			c,
+			2 * b
+		], dim=-1)
+
+		return target
+
+
+	def get_attention_probs(self, height, width):
+		''' 
+		Compute positional attention for image of size (height, width) 
+		Returns tensor of probs (h, w, n_heads, h, w)
+		'''
+		u = self.get_heads_target_vectors()
+
+		attention_scores = torch.einsum('ijkld,hd->ijhkl', [self.R[:height, :width, :height, :width, :], u])
+		attention_probs = F.softmax(attention_scores.view(height, width, self.heads, -1), dim=-1)
+		attention_probs = attention_probs.view(height, width, self.heads, height, width)
+
+		return attention_probs
+
+
+	def reset_heads(self):
+
+		device = self.attention_spreads.data.device
+		reset_heads_mask = torch.zeros(self.n_heads, device=device, dtype=torch.bool)
+		for head in heads:
+			reset_heads_mask[head] = 1
+
+		# Reinitialize mu and sigma of heads
+		self.attention_centers.data[reset_heads_mask].zero_().normal_(0.0, self.mu_init_noise)
+		
+		if self.isotropic_gaussian:
+			self.attention_spreads.ones_().normal_(0, self.sigma_init_noise)
+		else:
+			self.attention_spreads.zero_().normal_(0, self.sigma_init_noise)
+			self.attention_spreads[:, 0, 0] += 1
+			self.attention_spreads[:, 1, 1] += 1
+
+		# Reinitialize value matrix for all heads
+		mask = torch.zeros(self.n_heads, self.model_dim*self.heads, dtype=torch.bool)
+		for head in heads:
+			mask[head] = 1
+
+		mask = mask.view(-1).contiguous()
+		self.value.weight.data[:, mask].normal_(0.0, self.config['initializer_range'])
+
+
+	def blurred_attention(self, X):
+		"""
+		Compute the weighted average according to gaussian attention without
+        computing explicitly the attention coefficients.
+        Args:
+            X (tensor): shape (batch, width, height, dim)
+        Output:
+            shape (batch, width, height, dim x num_heads)
+        """
+		b, h, w, d_total = X.size()
+		Y = X.permute(0, 3, 1, 2).contiguous()
+
+		kernels = []
+		kernel_width = kernel_height = 7
+		
+		for mean, std in zip(self.attention_centers, self.attention_spreads):
+			conv_weights = gaussian_kernel_2d(mean, std, size=(kernel_height, kernel_width))
+			conv_weights = conv_weights.view(1, 1, kernel_height, kernel_width).repeat(d_total, 1, 1, 1)
+			kernels.append(conv_weights)
+
+		weights = torch.cat(kernels)
+		padding_width = (kernel_width - 1)//2
+		padding_height = (kernel_height - 1)//2 
+		out = F.conv2d(Y, weights, groups=d_total, padding=(padding_height, padding_width))
+
+		# Renormalize for padding
+		all_one_input = torch.ones(1, d_total, h, w, device=X.device)
+		normalizer = F.conv2d(all_one_input, weights, groups=d_total, padding=(padding_height, padding_width))
+		out /= normalize
+
+		return out.permute(0, 2, 3, 1).contiguous()
+
+
+	def forward(self, hidden_state, return_attn_scores=True):
+
+		assert len(hidden_state.size()) == 4, f'Bad hidden state shape {hidden_state.size()}'
+		b, h, w, c = hidden_state.size()
+
+		if self.attention_blur_trick:
+			attention_probs = self.get_attention_probs(h, w)
+			attention_probs = self.dropout(attention_probs)
+
+			input_values = torch.einsum('ijhkl,bkld->bijhd', attention_probs, hidden_state)
+			input_values = input_values.contiguous().view(b, h, w, -1)
+		else:
+			input_values = self.blurred_attention(hidden_state)
+
+		output_value = self.value(input_values)
+
+		if return_attn_scores:
+			return output_value, attention_probs
+		else:
+			return output_value
+
+
 class Feedforward(nn.Module):
 
 	def __init__(self, config):
@@ -261,6 +494,8 @@ class EncoderBlock(nn.Module):
 			self.attention = BertSelfAttention(config)	
 		elif name == 'relative':
 			self.attention = Learned2dRelativeSelfAttention(config)
+		elif name == 'gaussian':
+			self.attention = GaussianSelfAttention(config)
 		else:
 			raise NotImplementedError(f'Attention mechanism "{name}" either unspecified or invalid')
 
@@ -268,6 +503,7 @@ class EncoderBlock(nn.Module):
 
 
 	def forward(self, x):
+
 		x, att_scores = self.attention(x, return_attn_scores=True)
 		x = self.feedfwd(x)
 		return x, att_scores

@@ -1,0 +1,66 @@
+
+# Configuration for Bert Self attention
+
+epochs: 300
+batch_size: 100
+eval_every: 10
+
+# Models
+bert_encoder:
+  name: gaussian
+  mha_heads: 9
+  num_encoder_blocks: 6
+  in_dim: 64
+  model_dim: 400
+  ff_dim: 512 
+  pre_norm: False
+  attention_gaussian_blur_trick: True
+  attention_isotropic_gaussian: True
+  mu_init_noise: 2.0
+  sigma_init_noise: 0.01
+  initializer_range: 0.2
+  attention_dropout_prob: 0.1
+
+conv_bottom:
+  name: resnet18
+  block: 1
+  pretrained: False
+
+clf_head:
+  in_dim: 64
+  n_classes: 10
+
+optimizer:
+  name: sgd
+  lr: 0.1
+  weight_decay: 1.e-04
+
+scheduler:
+  name: cosine
+  warmup_epochs: 15
+
+# Data
+dataset:
+
+  name: cifar10
+  root: ../data/cifar10
+  
+  train_transform:
+    random_flip:
+    # gaussian_blur:
+    #   sigma: [0.1, 2.0]
+    #   apply_prob: 0.5
+    # random_resized_crop:
+    #   size: 32
+    #   scale: [0.2, 1.0]
+    to_tensor:
+    normalize:
+      mean: [0.4914, 0.4822, 0.4465]
+      std: [0.2470, 0.2435, 0.2616]
+
+  val_transform:
+    random_flip:
+    to_tensor:
+    normalize:
+      mean: [0.4914, 0.4822, 0.4465]
+      std: [0.2470, 0.2435, 0.2616]
