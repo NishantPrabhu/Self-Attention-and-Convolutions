@@ -10,18 +10,18 @@ bert_encoder:
   name: bert
   mha_heads: 9
   num_encoder_blocks: 6
-  in_dim: 64
+  in_dim: 256
   model_dim: 400
   ff_dim: 512
   pre_norm: False
 
 conv_bottom:
-  name: resnet18
+  name: resnet50
   block: 1
   pretrained: False
 
 clf_head:
-  in_dim: 64
+  in_dim: 256
   n_classes: 10
 
 optimizer:

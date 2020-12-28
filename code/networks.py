@@ -14,7 +14,8 @@ from torchvision import models
 
 
 MODEL_HELPER = {
-	'resnet18': models.resnet18
+	'resnet18': models.resnet18,
+	'resnet50': models.resnet50
 }
 
 
@@ -97,8 +98,7 @@ class BertSelfAttention(nn.Module):
 		self.pre_norm = config['pre_norm']
 		self.query = nn.Linear(self.in_dim, self.heads*self.model_dim, bias=False)
 		self.key = nn.Linear(self.in_dim, self.heads*self.model_dim, bias=False)
-		self.value = nn.Linear(self.in_dim, self.heads*self.model_dim, bias=False)
-		self.out = nn.Linear(self.heads*self.model_dim, self.in_dim, bias=False)
+		self.value = nn.Linear(self.heads*self.in_dim, self.in_dim, bias=False)
 		self.norm = nn.LayerNorm(self.in_dim)
 
 
@@ -113,20 +113,15 @@ class BertSelfAttention(nn.Module):
 
 		Q = self.query(x).view(bs, h, w, self.heads, -1)							# Q -> (bs, h, w, heads, model_dim)
 		K = self.key(x).view(bs, h, w, self.heads, -1)								# K -> (bs, h, w, heads, model_dim)
-		V = self.value(x).view(bs, h, w, self.heads, -1)							# V -> (bs, h, w, heads, model_dim)
-
-		# Q_ = torch.cat(Q.split(self.model_dim, -1), dim=0)						# Q_ -> (bs*heads, h, w, model_dim)
-		# K_ = torch.cat(K.split(self.model_dim, -1), dim=0)						# K_ -> (bs*heads, h, w, model_dim)
-		# V_ = torch.cat(V.split(self.model_dim, -1), dim=0)						# V_ -> (bs*heads, h, w, model_dim)
 
 		correlation = torch.einsum('bijhd,bklhd->bijhkl', Q, K)						# (bs, h, w, heads, h, w)
 		corr_size = correlation.size()		  					
 		correlation = correlation.view(*corr_size[:-2], -1)/sqrt_normalizer		  	# (bs, h, w, heads, h*w)
 		attn_probs = F.softmax(correlation, dim=-1).view(corr_size)					# (bs, h, w, heads, h, w)		
 		
-		logits = torch.einsum('bijhkl,bklhd->bijhd', attn_probs, V)					# logits -> (bs, h, w, heads, model_dim)
-		logits = logits.contiguous().view(bs, h, w, -1)								# logits -> (bs, h, w, heads*model_dim)
-		logits = self.out(logits)													# logits -> (bs, h, w, in_dim)
+		logits = torch.einsum('bijhkl,bkld->bijhd', attn_probs, x)					# logits -> (bs, h, w, heads, in_dim)
+		logits = logits.contiguous().view(bs, h, w, -1)								# logits -> (bs, h, w, heads*in_dim)
+		logits = self.value(logits)													# logits -> (bs, h, w, in_dim)
 
 		# Residual connection
 		out = logits + x
