@@ -1,7 +1,7 @@
 
 """ 
 BERT definition
-[NOTE] Experimental script
+[NOTE] Some stuff doesn't work correctly
 
 """
 
