@@ -1,0 +1,29 @@
+
+[INFO] No saved state found, starting fresh
+
+[Train epoch] 1 - [LR] 0.0067:   0%|          | 0/625 [00:00<?, ?it/s][Train epoch] 1 - [LR] 0.0067:   0%|          | 1/625 [00:00<05:41,  1.83it/s]Traceback (most recent call last):
+  File "main.py", line 46, in <module>
+    model.train(train_loader, val_loader)
+  File "/home/nishant/Desktop/Desktop/Papers2code/Implementations/Self-Attention-and-Convolutions/code/trainer.py", line 179, in train
+    train_loss, train_correct = self.train_one_step(batch)
+  File "/home/nishant/Desktop/Desktop/Papers2code/Implementations/Self-Attention-and-Convolutions/code/trainer.py", line 52, in train_one_step
+    out = self.clf_head(self.encoder(self.conv_bottom(img), return_attn_scores=False))
+  File "/usr/local/lib/python3.8/dist-packages/torch/nn/modules/module.py", line 722, in _call_impl
+    result = self.forward(*input, **kwargs)
+  File "/home/nishant/Desktop/Desktop/Papers2code/Implementations/Self-Attention-and-Convolutions/code/networks.py", line 517, in forward
+    x, att = self.blocks[i](x)
+  File "/usr/local/lib/python3.8/dist-packages/torch/nn/modules/module.py", line 722, in _call_impl
+    result = self.forward(*input, **kwargs)
+  File "/home/nishant/Desktop/Desktop/Papers2code/Implementations/Self-Attention-and-Convolutions/code/networks.py", line 499, in forward
+    x, att_scores = self.attention(x, return_attn_scores=True)
+  File "/usr/local/lib/python3.8/dist-packages/torch/nn/modules/module.py", line 722, in _call_impl
+    result = self.forward(*input, **kwargs)
+  File "/home/nishant/Desktop/Desktop/Papers2code/Implementations/Self-Attention-and-Convolutions/code/networks.py", line 128, in forward
+    out = self.norm(out)
+  File "/usr/local/lib/python3.8/dist-packages/torch/nn/modules/module.py", line 722, in _call_impl
+    result = self.forward(*input, **kwargs)
+  File "/usr/local/lib/python3.8/dist-packages/torch/nn/modules/normalization.py", line 169, in forward
+    return F.layer_norm(
+  File "/usr/local/lib/python3.8/dist-packages/torch/nn/functional.py", line 2048, in layer_norm
+    return torch.layer_norm(input, normalized_shape, weight, bias, eps,
+RuntimeError: CUDA out of memory. Tried to allocate 20.00 MiB (GPU 0; 7.79 GiB total capacity; 6.40 GiB already allocated; 16.88 MiB free; 6.42 GiB reserved in total by PyTorch)

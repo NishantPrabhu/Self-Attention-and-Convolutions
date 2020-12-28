@@ -1,0 +1,27 @@
+{
+    "os": "Linux-5.4.0-58-generic-x86_64-with-glibc2.29",
+    "python": "3.8.5",
+    "heartbeatAt": "2020-12-27T07:18:26.247705",
+    "startedAt": "2020-12-27T07:18:24.535143",
+    "docker": null,
+    "gpu": "GeForce RTX 2060 SUPER",
+    "gpu_count": 1,
+    "cpu_count": 12,
+    "cuda": "10.1.243",
+    "args": [
+        "--config",
+        "configs/bert.yaml"
+    ],
+    "state": "running",
+    "codePath": "code/main.py",
+    "program": "main.py",
+    "git": {
+        "remote": "https://github.com/NishantPrabhu/Self-Attention-and-Convolutions",
+        "commit": "f6478a5678dfe4272ab8bab741b79eae29fb7353"
+    },
+    "email": "me17b084@smail.iitm.ac.in",
+    "root": "/home/nishant/Desktop/Desktop/Papers2code/Implementations/Self-Attention-and-Convolutions",
+    "host": "nishant-aorus",
+    "username": "nishant",
+    "executable": "/usr/bin/python3"
+}
