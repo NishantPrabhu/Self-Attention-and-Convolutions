@@ -3,14 +3,13 @@
 
 epochs: 300
 batch_size: 100
-eval_every: 10
+eval_every: 5
 
 # Models
 bert_encoder:
   name: bert
   mha_heads: 9
   num_encoder_blocks: 6
-  in_dim: 256
   model_dim: 400
   ff_dim: 512
   pre_norm: False
@@ -19,9 +18,12 @@ conv_bottom:
   name: resnet50
   block: 1
   pretrained: False
+  model_dim: 400
+  pool_with_resnet: False 
+  pool_concatenate_size: 4
 
 clf_head:
-  in_dim: 256
+  model_dim: 400
   n_classes: 10
 
 optimizer:

@@ -26,15 +26,14 @@ class Trainer:
 		self.encoder = networks.BertEncoder(self.config['bert_encoder']).to(self.device)
 		self.conv_bottom = networks.ConvBottom(self.config['conv_bottom']).to(self.device)
 		self.clf_head = networks.ClassificationHead(self.config['clf_head']).to(self.device)
-		
+	
 		self.optim = train_utils.get_optimizer(
 			config = self.config['optimizer'], 
-			params = list(self.encoder.parameters())+list(self.conv_bottom.parameters())+list(self.clf_head.parameters())
-		)
+			params = list(self.encoder.parameters())+list(self.conv_bottom.parameters())+list(self.clf_head.parameters()))
+
 		self.scheduler, self.warmup_epochs = train_utils.get_scheduler(
 			config = {**self.config['scheduler'], 'epochs': self.config['epochs']}, 
-			optimizer = self.optim
-		)
+			optimizer = self.optim)
 
 		# Warmup handling
 		if self.warmup_epochs > 0:

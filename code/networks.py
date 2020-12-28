@@ -14,8 +14,8 @@ from torchvision import models
 
 
 MODEL_HELPER = {
-	'resnet18': models.resnet18,
-	'resnet50': models.resnet50
+	'resnet18': {'net': models.resnet18, 'features': 64},
+	'resnet50': {'net': models.resnet50, 'features': 256}
 }
 
 
@@ -92,14 +92,13 @@ class BertSelfAttention(nn.Module):
 	def __init__(self, config):
 		
 		super(BertSelfAttention, self).__init__()
-		self.in_dim = config['in_dim'] 
 		self.model_dim = config['model_dim']
 		self.heads = config['mha_heads']
 		self.pre_norm = config['pre_norm']
-		self.query = nn.Linear(self.in_dim, self.heads*self.model_dim, bias=False)
-		self.key = nn.Linear(self.in_dim, self.heads*self.model_dim, bias=False)
-		self.value = nn.Linear(self.heads*self.in_dim, self.in_dim, bias=False)
-		self.norm = nn.LayerNorm(self.in_dim)
+		self.query = nn.Linear(self.model_dim, self.heads*self.model_dim, bias=False)
+		self.key = nn.Linear(self.model_dim, self.heads*self.model_dim, bias=False)
+		self.value = nn.Linear(self.heads*self.model_dim, self.model_dim, bias=False)
+		self.norm = nn.LayerNorm(self.model_dim)
 
 
 	def forward(self, x, return_attn_scores=False):
@@ -119,9 +118,9 @@ class BertSelfAttention(nn.Module):
 		correlation = correlation.view(*corr_size[:-2], -1)/sqrt_normalizer		  	# (bs, h, w, heads, h*w)
 		attn_probs = F.softmax(correlation, dim=-1).view(corr_size)					# (bs, h, w, heads, h, w)		
 		
-		logits = torch.einsum('bijhkl,bkld->bijhd', attn_probs, x)					# logits -> (bs, h, w, heads, in_dim)
-		logits = logits.contiguous().view(bs, h, w, -1)								# logits -> (bs, h, w, heads*in_dim)
-		logits = self.value(logits)													# logits -> (bs, h, w, in_dim)
+		logits = torch.einsum('bijhkl,bkld->bijhd', attn_probs, x)					# logits -> (bs, h, w, heads, model_dim)
+		logits = logits.contiguous().view(bs, h, w, -1)								# logits -> (bs, h, w, heads*model_dim)
+		logits = self.value(logits)													# logits -> (bs, h, w, model_dim)
 
 		# Residual connection
 		out = logits + x
@@ -139,7 +138,6 @@ class Learned2dRelativeSelfAttention(nn.Module):
 		self.use_attention_data = config.get('use_attention_data', False)  
 		self.query_positional_score = config.get('query_positional_score', False)
 		self.heads = config['mha_heads']
-		self.in_dim = config['in_dim']
 		self.model_dim = config['model_dim']
 		
 		max_position_embeddings = config['max_position_embedding'] 
@@ -159,13 +157,13 @@ class Learned2dRelativeSelfAttention(nn.Module):
 
 		# Linear transforms for query and key
 		if self.use_attention_data or self.query_positional_score:
-			self.query = nn.Linear(self.in_dim, self.model_dim*self.heads, bias=False)
+			self.query = nn.Linear(self.model_dim, self.model_dim*self.heads, bias=False)
 
 		if self.use_attention_data:
-			self.key = nn.Linear(self.in_dim, self.model_dim*self.heads, bias=False)
+			self.key = nn.Linear(self.model_dim, self.model_dim*self.heads, bias=False)
 
 		self.dropout = nn.Dropout(config['attention_dropout_prob'])
-		self.value = nn.Linear(self.in_dim*self.heads, self.in_dim, bias=False)
+		self.value = nn.Linear(self.model_dim*self.heads, self.model_dim, bias=False)
 
 		# Relative positional encoding
 		deltas = torch.arange(max_position_embeddings).view(-1, 1) + torch.arange(max_position_embeddings).view(1, -1)
@@ -275,7 +273,7 @@ class Learned2dRelativeSelfAttention(nn.Module):
 		attention_probs = self.dropout(attention_probs)
 		input_values = torch.einsum('bijhkl,bkld->bijhd', attention_probs, hidden_state)
 		input_values = input_values.contiguous().view(bs, h, w, -1)
-		output_value = self.value(input_values)							# (bs, h, w, in_dim)
+		output_value = self.value(input_values)							# (bs, h, w, model_dim)
 
 		if return_attn_scores:
 			attention_scores_per_type['attention_scores'] = attention_scores
@@ -297,7 +295,6 @@ class GaussianSelfAttention(nn.Module):
 		self.config = config 
 
 		self.heads = config['mha_heads']
-		self.in_dim = config['in_dim']
 		self.model_dim = config['model_dim']
 
 		# Initialize attention centers noisily around 0 and covariances
@@ -313,7 +310,7 @@ class GaussianSelfAttention(nn.Module):
 			attention_spreads += torch.zeros_like(attention_spreads).normal_(0, self.sigma_init_noise)		# Added noise
 
 		self.attention_spreads = nn.Parameter(attention_spreads)
-		self.value = nn.Linear(self.heads*self.in_dim, self.in_dim, bias=False)
+		self.value = nn.Linear(self.heads*self.model_dim, self.model_dim, bias=False)
 
 		# Gaussian blur trick. Not sure what benefit this gives
 		# relative encoding grid (delta_x, delta_y, delta_x**2, delta_y**2, delta_x * delta_y)
@@ -454,17 +451,17 @@ class Feedforward(nn.Module):
 	def __init__(self, config):
 		
 		super(Feedforward, self).__init__()
-		in_dim = config['in_dim']
+		model_dim = config['model_dim']
 		hidden_dim = config['ff_dim']
 		self.pre_norm = config['pre_norm']
-		self.fc1 = nn.Linear(in_dim, hidden_dim)
+		self.fc1 = nn.Linear(model_dim, hidden_dim)
 		self.relu = nn.ReLU()
-		self.fc2 = nn.Linear(hidden_dim, in_dim)
-		self.norm = nn.LayerNorm(in_dim)
+		self.fc2 = nn.Linear(hidden_dim, model_dim)
+		self.norm = nn.LayerNorm(model_dim)
 
 
 	def forward(self, x):
-		''' Input has shape (bs, n, in_dim) '''
+		''' Input has shape (bs, n, model_dim) '''
 
 		if self.pre_norm:
 			x = self.norm(x)
@@ -531,18 +528,59 @@ class ConvBottom(nn.Module):
 	def __init__(self, config):
 		
 		super(ConvBottom, self).__init__()
-		name = config.get('name', None)	
-		assert name in list(MODEL_HELPER.keys()), f'name should be one of {list(MODEL_HELPER.keys())}'
-		
-		self.base_model = MODEL_HELPER[name](pretrained=config['pretrained'])
-		self.res_layers = list(self.base_model.children())[0:4+config['block']]
-		self.bottom = nn.Sequential(*self.res_layers)
+		self.config = config
+
+		# In channels to feature upscaler
+		if self.config['pool_with_resnet']:
+			name = config.get('name', None)	
+			assert name in list(MODEL_HELPER.keys()), f'name should be one of {list(MODEL_HELPER.keys())}'
+			
+			base_model = MODEL_HELPER[name]['net'](pretrained=config['pretrained'])
+			channels = MODEL_HELPER[name]['features']
+			res_layers = list(base_model.children())[0:4+config['block']]
+			self.bottom = nn.Sequential(*res_layers)
+
+			a = torch.rand((1, 3, 32, 32))
+			with torch.no_grad():
+				out = self.bottom(a)
+			in_features = out.size(1)
+
+		elif self.config['pool_concatenate_size'] > 1:
+			in_features = 3 * self.config['pool_concatenate_size'] ** 2
+			
+		else:
+			in_features = 3
+
+		self.feature_upscale = nn.Linear(in_features, config['model_dim'])
+
+
+	def downsample_concatenate(self, x, kernel):
+		''' To be used if pooling is not with resnet '''
+
+		assert (self.config['pool_concatenate_size'] > 1) & (not self.config['pool_with_resnet']), "Something's wrong, I can feel it"
+		b, h, w, c = x.size()
+		y = x.contiguous().view(b, h, w//kernel, c*kernel)
+		y = y.permute(0, 2, 1, 3).contiguous()
+		y = y.view(b, w//kernel, h//kernel, kernel*kernel*c).contiguous() 
+		y = y.permute(0, 2, 1, 3).contiguous() 
+		return y
 
 
 	def forward(self, x):
+		''' x has size (bs, c, h, w) '''
 
-		out = self.bottom(x)			# For resnet18 and CIFAR10, output has size (bs, 64, 8, 8)
-		return out.permute(0, 2, 3, 1)
+		if self.config['pool_with_resnet']:
+			features = self.bottom(x)						# For resnet50 and CIFAR10, output has size (bs, 256, 8, 8)
+			features = features.permute(0, 2, 3, 1)			# Convert to NHWC; required for attention mechanism
+
+		elif self.config['pool_concatenate_size'] > 1:
+			x = x.permute(0, 2, 3, 1)															# Convert to NHWC
+			features = self.downsample_concatenate(x, self.config['pool_concatenate_size'])		# (bs, h//cs, w//cs, cs*cs*c)
+
+		else:
+			features = x.permute(0, 2, 3, 1)
+
+		return self.feature_upscale(features)				# (bs, h, w, model_dim)
 
 
 class ClassificationHead(nn.Module):
@@ -550,7 +588,7 @@ class ClassificationHead(nn.Module):
 	def __init__(self, config):
 		
 		super(ClassificationHead, self).__init__()
-		self.fc = nn.Linear(config['in_dim'], config['n_classes'])
+		self.fc = nn.Linear(config['model_dim'], config['n_classes'])
 
 
 	def forward(self, x):
