@@ -186,6 +186,9 @@ class Trainer:
 			pbar.close()
 			wandb.log({'Train accuracy': train_acc, 'Epoch': epoch+1})
 
+			# Save state
+			self.save_state(epoch)
+
 			if epoch % self.config['eval_every'] == 0:
 				val_losses, val_correct_count = [], 0
 				pbar = tqdm(total=len(val_loader), desc=f'[Valid epoch] {epoch+1}')

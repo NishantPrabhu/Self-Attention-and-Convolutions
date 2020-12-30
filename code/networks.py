@@ -153,7 +153,7 @@ class Learned2dRelativeSelfAttention(nn.Module):
 
 		if not self.query_positional_score:
 			self.head_keys_row = nn.Linear(position_embedding_size, self.heads, bias=False)
-			self.col_keys_row = nn.Linear(position_embedding_size, self.heads, bias=False)
+			self.head_keys_col = nn.Linear(position_embedding_size, self.heads, bias=False)
 
 		# Linear transforms for query and key
 		if self.use_attention_data or self.query_positional_score:
@@ -314,7 +314,7 @@ class GaussianSelfAttention(nn.Module):
 
 		# Gaussian blur trick. Not sure what benefit this gives
 		# relative encoding grid (delta_x, delta_y, delta_x**2, delta_y**2, delta_x * delta_y)
-		if self.attention_blur_trick:
+		if not self.attention_blur_trick:
 			MAX_WIDTH_HEIGHT = 50
 			range_ = torch.arange(MAX_WIDTH_HEIGHT)
 			grid = torch.cat([t.unsqueeze(-1) for t in torch.meshgrid([range_, range_])], dim=-1)			# (MWH, MWH, 2)
@@ -429,7 +429,7 @@ class GaussianSelfAttention(nn.Module):
 		assert len(hidden_state.size()) == 4, f'Bad hidden state shape {hidden_state.size()}'
 		b, h, w, c = hidden_state.size()
 
-		if self.attention_blur_trick:
+		if not self.attention_blur_trick:
 			attention_probs = self.get_attention_probs(h, w)
 			attention_probs = self.dropout(attention_probs)
 
