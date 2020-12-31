@@ -1,0 +1,4 @@
+setting login settings: {}
+[INFO] https://wandb.ai/me17b084/Self-Attention-and-Convolutions/runs/2i76kjau
+[INFO] No saved state found. Starting fresh
+[TRAIN] Epoch [  1/300]
