@@ -1,6 +1,7 @@
 
 data/
 wandb/
+cifar10/
 models/__pycache__/
 helpers/__pycache__/
 
