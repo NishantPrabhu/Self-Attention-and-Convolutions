@@ -14,6 +14,7 @@ bert_encoder:
   ff_dim: 512
   ff_activation: relu
   pre_norm: False
+  hierarchical_weight_sharing: True
 
 feature_pooling:
   resnet: resnet50

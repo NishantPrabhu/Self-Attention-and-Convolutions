@@ -113,15 +113,25 @@ class BertEncoder(nn.Module):
 
         super().__init__()
         self.num_blocks = config['num_encoder_blocks']
-        self.blocks = nn.ModuleList([EncoderBlock(config) for _ in range(self.num_blocks)])
+        self.hierarchical = config['hierarchical_weight_sharing']
+        if not self.hierarchical:
+            self.blocks = nn.ModuleList([EncoderBlock(config) for _ in range(self.num_blocks)])
+        else:
+            self.block = EncoderBlock(config)
 
 
     def forward(self, x, return_attn=False):
 
         attn_scores = {}
-        for i in range(self.num_blocks):
-            x, att = self.blocks[i](x)
-            attn_scores[f'layer_{i}'] = att
+        
+        if not self.hierarchical: 
+            for i in range(self.num_blocks):
+                x, att = self.blocks[i](x)
+                attn_scores[f'layer_{i}'] = att
+        else:
+            for i in range(self.num_blocks):
+                x, att = self.block(x)
+                attn_scores[f'layer_{i}'] = att
 
         if return_attn:
             return x, attn_scores

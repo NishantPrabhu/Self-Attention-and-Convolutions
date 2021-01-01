@@ -93,6 +93,7 @@ class BertSelfAttention(nn.Module):
         self.model_dim = config['model_dim']
         self.heads = config['num_heads']
         self.pre_norm = config['pre_norm']
+        self.hierarchical = config['hierarchical_weight_sharing']
 
         # Layers  
         self.query = nn.Linear(self.model_dim, self.heads*self.model_dim, bias=False)
@@ -100,6 +101,9 @@ class BertSelfAttention(nn.Module):
         self.value = nn.Linear(self.heads*self.model_dim, self.model_dim, bias=False)
         self.layer_norm = nn.LayerNorm(self.model_dim)
         self.dropout = nn.Dropout(config.get('attention_dropout_prob', 0.1))
+
+        # [TEMP] For hierarchical attention, to keep key tensor fixed
+        self.K = None
 
     
     def forward(self, x):
@@ -115,9 +119,13 @@ class BertSelfAttention(nn.Module):
             x = self.layer_norm(x)
 
         Q = self.query(x).view(bs, self.heads, -1, self.model_dim)                                  # (bs, heads, n, model_dim)
-        K = self.key(x).view(bs, self.heads, -1, self.model_dim)                                    # (bs, heads, n, model_dim)
+        if self.hierarchical:
+            if self.K is None:
+                self.K = self.key(x).view(bs, self.heads, -1, self.model_dim)                       # (bs, heads, n, model_dim)
+        else:
+            self.K = self.key(x).view(bs, self.heads, -1, self.model_dim)                           # (bs, heads, n, model_dim)
 
-        attention_scores = torch.einsum('bhid,bhjd->bhij', [Q, K])                                  # (bs, heads, n, n)
+        attention_scores = torch.einsum('bhid,bhjd->bhij', [Q, self.K])                             # (bs, heads, n, n)
         attention_probs = F.softmax(attention_scores/sqrt_normalizer, dim=-1)                       # (bs, heads, n, n) softmaxed
         attention_probs = self.dropout(attention_probs)
 
@@ -159,6 +167,7 @@ class Learned2dRelativeSelfAttention(nn.Module):
         self.heads = config['num_heads']
         self.model_dim = config['model_dim']
         self.pre_norm = config['pre_norm']
+        self.hierarchical = config['hierarchical_weight_sharing']
 
         max_position_embeddings = config.get('max_position_embeddings', 16)         # Used in defining relative pixel indices
         position_embedding_size = self.model_dim                                    # Dimension of positional embedding
@@ -197,6 +206,9 @@ class Learned2dRelativeSelfAttention(nn.Module):
         relative_indices = deltas + max_position_embeddings - 1
         self.register_buffer('relative_indices', relative_indices)
 
+        # [TEMP] For hierarchical attention, to keep key tensor fixed
+        self.k = None
+
 
     def compute_attention_scores(self, hidden_state):
         ''' 
@@ -211,7 +223,11 @@ class Learned2dRelativeSelfAttention(nn.Module):
             q = self.query(hidden_state).view(bs, w, h, self.heads, self.model_dim)                 # (bs, w, h, heads, model_dim)
 
         if self.use_attention_data:
-            k = self.key(hidden_state).view(bs, w, h, self.heads, self.model_dim)                   # (bs, w, h, heads, model_dim)
+            if self.hierarchical:
+                if self.k is None:
+                    self.k = self.key(hidden_state).view(bs, w, h, self.heads, self.model_dim)      # (bs, w, h, heads, model_dim)
+            else:
+                self.k = self.key(hidden_state).view(bs, w, h, self.heads, self.model_dim)          # (bs, w, h, heads, model_dim)
 
         # Compute row and column embeddings based on position
         rel_idx = self.relative_indices[:w, :w].reshape(-1,)
@@ -243,7 +259,7 @@ class Learned2dRelativeSelfAttention(nn.Module):
 
         if self.use_attention_data:
             # Compute content based attention scores
-            att_content_scores = torch.einsum('bijhd,bklhd->bijhkl', q, k)                          # (bs, w, h, heads, w, h)
+            att_content_scores = torch.einsum('bijhd,bklhd->bijhkl', q, self.k)                     # (bs, w, h, heads, w, h)
             att_content_scores = att_content_scores/sqrt_normalizer
             att_content_scores = att_content_scores.permute(0, 2, 1, 3, 5, 4)                       # (bs, h, w, heads, h, w)
             attention_scores = attention_scores + att_content_scores                                # (bs, h, w, heads, h, w)
