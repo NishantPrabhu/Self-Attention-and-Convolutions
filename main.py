@@ -55,8 +55,6 @@ class Trainer:
         run = wandb.init('self-attention-cnn')
         
         # Other
-        self.train_meter = common.AverageMeter()
-        self.val_meter = common.AverageMeter()
         self.logger.write(run.get_url(), mode='info')
 
         # Check for any saved state in the output directory and load
@@ -83,7 +81,7 @@ class Trainer:
 
         # Correct predictions
         pred = out.argmax(dim=-1)	
-        acc = pred.eq(labels.view_as(pred)).sum().item() / len(data)
+        acc = pred.eq(labels.view_as(pred)).sum().item() / img.size(0)
         
         return {'Loss': loss.item(), 'Accuracy': acc}
 
@@ -95,7 +93,7 @@ class Trainer:
         
         loss = self.criterion(out, labels)
         pred = out.argmax(dim=-1)	
-        acc = pred.eq(labels.view_as(pred)).sum().item() / len(data)
+        acc = pred.eq(labels.view_as(pred)).sum().item() / img.size(0)
         
         return {'Loss': loss.item(), 'Accuracy': acc}
 
@@ -186,18 +184,20 @@ class Trainer:
         # Training loop
         for epoch in range(self.config['epochs'] - self.done_epochs + 1):
 
+            train_meter = common.AverageMeter()
+            val_meter = common.AverageMeter()
             self.logger.record('Epoch [{:3d}/{}]'.format(epoch+1, self.config['epochs']), mode='train')
             self.adjust_learning_rate(epoch+1)
 
             for idx, batch in enumerate(self.train_loader):
                 train_metrics = self.train_one_step(batch)
                 wandb.log({'Loss': train_metrics['Loss'], 'Epoch': epoch+1})
-                self.train_meter.add(train_metrics)
-                common.progress_bar(progress=idx/len(self.train_loader), status=self.train_meter.return_msg())
+                train_meter.add(train_metrics)
+                common.progress_bar(progress=idx/len(self.train_loader), status=train_meter.return_msg())
 
-            common.progress_bar(progress=1, status=self.train_meter.return_msg())
-            self.logger.write(self.train_meter.return_msg(), mode='train')
-            wandb.log({'Train accuracy': self.train_meter.return_metrics()['Accuracy'], 'Epoch': epoch+1})
+            common.progress_bar(progress=1, status=train_meter.return_msg())
+            self.logger.write(train_meter.return_msg(), mode='train')
+            wandb.log({'Train accuracy': train_meter.return_metrics()['Accuracy'], 'Epoch': epoch+1})
             wandb.log({'Learning rate': self.optim.param_groups[0]['lr'], 'Epoch': epoch+1})
 
             # Save state
@@ -210,12 +210,12 @@ class Trainer:
                 
                 for idx, batch in enumerate(self.val_loader):
                     val_metrics = self.validate_one_step(batch)
-                    self.val_meter.add(val_metrics)
-                    common.progress_bar(progress=idx/len(self.val_loader), status=self.val_meter.return_msg())
+                    val_meter.add(val_metrics)
+                    common.progress_bar(progress=idx/len(self.val_loader), status=val_meter.return_msg())
 
-                common.progress_bar(progress=1, status=self.val_meter.return_msg())
-                self.logger.write(self.val_meter.return_msg(), mode='val')
-                val_metrics = self.val_meter.return_metrics()
+                common.progress_bar(progress=1, status=val_meter.return_msg())
+                self.logger.write(val_meter.return_msg(), mode='val')
+                val_metrics = val_meter.return_metrics()
                 wandb.log({'Validation loss': val_metrics['Loss'], 'Validation accuracy': val_metrics['Accuracy'], 'Epoch': epoch+1})
 
                 if val_metrics['Accuracy'] > self.best_val_acc:
