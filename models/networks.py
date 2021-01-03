@@ -100,11 +100,14 @@ class EncoderBlock(nn.Module):
         self.feedfwd = Feedforward(config)
 
 
-    def forward(self, x):
-
-        x, att_scores = self.attention(x)
+    def forward(self, x, k=None):
+        ''' 
+        In case of hierarchical attention, subsequent blocks
+        receive key tensor from first block
+        '''
+        x, att_scores, k = self.attention(x, k)
         x = self.feedfwd(x)
-        return x, att_scores
+        return x, att_scores, k
 
 
 class BertEncoder(nn.Module):
@@ -122,15 +125,16 @@ class BertEncoder(nn.Module):
 
     def forward(self, x, return_attn=False):
 
-        attn_scores = {}
-        
+        attn_scores = {}                                            # Layerwise attention scores collector
+        k = None                                                    # Initialize to None, it will change depending on hierarchical
+
         if not self.hierarchical: 
             for i in range(self.num_blocks):
-                x, att = self.blocks[i](x)
+                x, att, k = self.blocks[i](x, k)
                 attn_scores[f'layer_{i}'] = att
         else:
             for i in range(self.num_blocks):
-                x, att = self.block(x)
+                x, att, k = self.block(x, k)
                 attn_scores[f'layer_{i}'] = att
 
         if return_attn:
@@ -156,7 +160,7 @@ class FeaturePooling(nn.Module):
             assert name in list(MODEL_HELPER.keys()), f'Invalid resnet {name}'
 
             base_model = MODEL_HELPER[name](pretrained=config['pretrained'])
-            res_layers = list(base_model.children())[0:4+config['block']+1]
+            res_layers = list(base_model.children())[0:4+config['block']]
             self.bottom = nn.Sequential(*res_layers)
 
             a = torch.rand((1, 3, 32, 32))
