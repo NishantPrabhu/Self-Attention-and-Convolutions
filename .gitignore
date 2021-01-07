@@ -1,5 +1,6 @@
 
 data/
+test/
 wandb/
 cifar10/
 models/__pycache__/

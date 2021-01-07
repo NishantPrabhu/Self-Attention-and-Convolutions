@@ -228,6 +228,169 @@ class Trainer:
         self.logger.record('Training complete!', mode='info')
 
 
+class ResnetTrainer:
+    ''' 
+    For training a normal ResNet
+    '''
+
+    def __init__(self, args):
+
+        # Initialize experiment
+        self.config, self.output_dir, self.logger, self.device = common.init_experiment(args, seed=420)
+
+        # Networks and optimizers
+        self.model = networks.ResnetClassifier(self.config['resnet']).to(self.device)
+        common.print_network(self.model, 'Resnet')
+        self.optim = train_utils.get_optimizer(config=self.config['optimizer'], params=self.model.parameters())
+        self.scheduler, self.warmup_epochs = train_utils.get_scheduler(
+            config = {**self.config['scheduler'], 'epochs': self.config['epochs']}, 
+            optimizer = self.optim)
+
+        # Warmup handling
+        if self.warmup_epochs > 0:
+            self.warmup_rate = self.optim.param_groups[0]['lr'] / self.warmup_epochs
+
+        # Dataloaders
+        self.train_loader, self.val_loader = data_utils.get_dataloader({
+            **self.config['dataset'], 
+            'batch_size': self.config['batch_size']
+        })
+
+        # Losses and performance monitoring
+        self.criterion = nn.NLLLoss()
+        self.best_val_acc = 0
+        run = wandb.init('self-attention-cnn')
+        
+        # Other
+        self.logger.write(run.get_url(), mode='info')
+
+        # Check for any saved state in the output directory and load
+        if os.path.exists(os.path.join(self.output_dir, 'last.ckpt')):
+            self.done_epochs = self.load_state()
+            self.logger.print(f"Loaded saved state. Resuming from {self.done_epochs} epochs", mode="info")
+            self.logger.write(f"Loaded saved state. Resuming from {self.done_epochs} epochs", mode="info")
+        else:
+            self.done_epochs = 0
+            self.logger.print(f"No saved state found. Starting fresh", mode="info")
+            self.logger.write(f"No saved state found. Starting fresh", mode="info")
+
+
+    def train_one_step(self, data):
+
+        img, labels = data[0].to(self.device), data[1].to(self.device)
+        out = self.model(img)
+        
+        # Loss and update
+        self.optim.zero_grad()
+        loss = self.criterion(out, labels)	
+        loss.backward()
+        self.optim.step()
+
+        # Correct predictions
+        pred = out.argmax(dim=-1)	
+        acc = pred.eq(labels.view_as(pred)).sum().item() / img.size(0)
+        
+        return {'Loss': loss.item(), 'Accuracy': acc}
+
+
+    def validate_one_step(self, data):
+
+        img, labels = data[0].to(self.device), data[1].to(self.device)
+        out = self.model(img)
+        
+        loss = self.criterion(out, labels)
+        pred = out.argmax(dim=-1)	
+        acc = pred.eq(labels.view_as(pred)).sum().item() / img.size(0)
+        
+        return {'Loss': loss.item(), 'Accuracy': acc}
+
+
+    def save_state(self, epoch):
+        ''' For resuming from run breakages, etc '''
+        
+        state = {
+            'epoch': epoch,
+            'model': self.model.state_dict(),
+            'optim': self.optim.state_dict(),
+        }
+        torch.save(state, os.path.join(self.output_dir, 'last_state.ckpt'))
+
+
+    def save_data(self):
+        
+        data = {
+            'model': self.model.state_dict(),
+        }
+        torch.save(data, os.path.join(self.output_dir, 'best_model.ckpt'))
+
+
+    def load_state(self):
+        
+        last_state = torch.load(os.path.join(self.output_dir, 'last_state.ckpt'))
+        done_epochs = last_state['epoch'] - 1
+        self.model.load_state_dict(last_state['model'])
+        self.optim.load_state_dict(last_state['optim'])
+        return done_epochs
+
+
+    def adjust_learning_rate(self, epoch):
+        
+        if epoch < self.warmup_epochs:
+            for group in self.optim.param_groups:
+                group['lr'] = 1e-12 + (epoch * self.warmup_rate)
+        elif self.scheduler is not None:
+            self.scheduler.step()
+        else:
+            pass
+
+
+    def train(self):
+
+        print()
+        # Training loop
+        for epoch in range(self.config['epochs'] - self.done_epochs + 1):
+
+            train_meter = common.AverageMeter()
+            val_meter = common.AverageMeter()
+            self.logger.record('Epoch [{:3d}/{}]'.format(epoch+1, self.config['epochs']), mode='train')
+            self.adjust_learning_rate(epoch+1)
+
+            for idx, batch in enumerate(self.train_loader):
+                train_metrics = self.train_one_step(batch)
+                wandb.log({'Loss': train_metrics['Loss'], 'Epoch': epoch+1})
+                train_meter.add(train_metrics)
+                common.progress_bar(progress=idx/len(self.train_loader), status=train_meter.return_msg())
+
+            common.progress_bar(progress=1, status=train_meter.return_msg())
+            self.logger.write(train_meter.return_msg(), mode='train')
+            wandb.log({'Train accuracy': train_meter.return_metrics()['Accuracy'], 'Epoch': epoch+1})
+            wandb.log({'Learning rate': self.optim.param_groups[0]['lr'], 'Epoch': epoch+1})
+
+            # Save state
+            self.save_state(epoch)
+
+            # Validation
+            if epoch % self.config['eval_every'] == 0:
+
+                self.logger.record('Epoch [{:3d}/{}]'.format(epoch+1, self.config['epochs']), mode='val')
+                
+                for idx, batch in enumerate(self.val_loader):
+                    val_metrics = self.validate_one_step(batch)
+                    val_meter.add(val_metrics)
+                    common.progress_bar(progress=idx/len(self.val_loader), status=val_meter.return_msg())
+
+                common.progress_bar(progress=1, status=val_meter.return_msg())
+                self.logger.write(val_meter.return_msg(), mode='val')
+                val_metrics = val_meter.return_metrics()
+                wandb.log({'Validation loss': val_metrics['Loss'], 'Validation accuracy': val_metrics['Accuracy'], 'Epoch': epoch+1})
+
+                if val_metrics['Accuracy'] > self.best_val_acc:
+                    self.best_val_acc = val_metrics['Accuracy']
+                    self.save_data()
+
+        self.logger.record('\nTraining complete!', mode='info')
+
+
 
 if __name__ == '__main__':
 
@@ -238,7 +401,10 @@ if __name__ == '__main__':
     args = vars(ap.parse_args())
 
     # Initialize trainer
-    trainer = Trainer(args)
+    # trainer = Trainer(args)
+
+    # For training a normal resnet
+    trainer = ResnetTrainer(args)
 
     # Train 
     trainer.train()

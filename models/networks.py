@@ -14,9 +14,9 @@ from . import attention
 
 
 MODEL_HELPER = {
-    'resnet18': models.resnet18,
-    'resnet50': models.resnet50,
-    'resnet101': models.resnet101
+    'resnet18': {'net': models.resnet18, 'out': 512},
+    'resnet50': {'net': models.resnet50, 'out': 2048},
+    'resnet101': {'net': models.resnet101, 'out': 2048}
 }
 
 
@@ -226,3 +226,50 @@ class ClassificationHead(nn.Module):
         x = x.view(bs, -1, c).contiguous().mean(dim=1)
         out = self.fc(x)
         return F.log_softmax(out, dim=-1)
+
+
+class ResnetClassifier(nn.Module):
+    ''' 
+    Normal resnet for classification
+    '''
+
+    def __init__(self, config):
+        super().__init__()
+        name = config.get('name', None)
+        assert name in list(MODEL_HELPER.keys()), f'name should be one of {list(MODEL_HELPER.keys())}'
+
+        # Initial layers adjusted for CIFAR10
+        conv0 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
+        bn1 = nn.BatchNorm2d(64)
+        relu1 = nn.ReLU()
+
+        # Extract layers from resnet18 and add own
+        resnet = MODEL_HELPER[name]['net'](pretrained=False)
+        out_channels = MODEL_HELPER[name]['out']
+        layers = list(resnet.children())
+        self.backbone = nn.Sequential(conv0, bn1, relu1, *layers[4:len(layers)-1])
+        self.flatten = nn.Flatten()
+        self.fc_out = nn.Linear(out_channels, 10, bias=True)
+
+        # Weight initialization
+        for m in self.backbone.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
+            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
+        # Reference: https://arxiv.org/abs/1706.02677
+        if config['zero_init_residual']:
+            for m in self.backbone.modules():
+                if isinstance(m, models.resnet.Bottleneck):
+                    nn.init.constant_(m.bn3.weight, 0)
+                if isinstance(m, models.resnet.BasicBlock):
+                    nn.init.constant_(m.bn2.weight, 0)
+
+
+    def forward(self, x):
+
+        x = self.backbone(x)
+        x = torch.flatten(x, 1)
+        return F.log_softmax(self.fc_out(x), dim=-1)

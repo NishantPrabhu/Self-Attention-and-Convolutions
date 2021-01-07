@@ -19,6 +19,7 @@ DATASET_HELPER = {
 
 TRANSFORM_HELPER = {
     "color_jitter": transforms.ColorJitter,
+    "random_rotate": transforms.RandomRotation,
     "random_gray": transforms.RandomGrayscale,
     "random_crop": transforms.RandomCrop,
     "random_resized_crop": transforms.RandomResizedCrop,
