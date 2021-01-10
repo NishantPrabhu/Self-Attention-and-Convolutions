@@ -13,7 +13,7 @@ import torch.nn as nn
 import matplotlib.pyplot as plt
 from datetime import datetime as dt 
 from models import attention, networks
-from helpers import common, train_utils, data_utils
+from utils import common, train_utils, data_utils
 
 
 class Trainer:
@@ -400,7 +400,7 @@ if __name__ == '__main__':
     ap.add_argument('-o', '--output', default=dt.now().strftime('%Y-%m-%d_%H-%M'), type=str, help='Path to output file')
     args = vars(ap.parse_args())
 
-    # Initialize trainer
+    # For training attention networks
     # trainer = Trainer(args)
 
     # For training a normal resnet

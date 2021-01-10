@@ -269,7 +269,6 @@ class ResnetClassifier(nn.Module):
 
 
     def forward(self, x):
-
         x = self.backbone(x)
         x = torch.flatten(x, 1)
         return F.log_softmax(self.fc_out(x), dim=-1)
