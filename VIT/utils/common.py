@@ -128,7 +128,7 @@ def init_experiment(args, seed=420):
     config = open_config(args["config"])
 
     # Setup logging directory
-    output_dir = os.path.join(config["dataset"]['name'], config['encoder']['attention'], args["output"])
+    output_dir = os.path.join(config["dataset"]['name'], args["output"])
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     logger = Logger(output_dir)

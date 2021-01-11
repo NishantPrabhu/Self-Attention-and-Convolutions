@@ -17,7 +17,7 @@ def get_optimizer(config, params):
     if name == "sgd":
         return optim.SGD(params=params, lr=config["lr"], weight_decay=config["weight_decay"], momentum=0.9, nesterov=True)
     elif name == "adam":
-        return optim.Adam(params=params, lr=config["lr"], weight_decay=config["weight_decay"])
+        return optim.Adam(params=params, lr=config["lr"], weight_decay=config["weight_decay"], betas=(0.9, 0.999))
     else:
         raise NotImplementedError(f"Invalid optimizer {name}")
 

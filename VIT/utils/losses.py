@@ -16,7 +16,7 @@ class ClassificationLoss(nn.Module):
         super().__init__()
         self.eps = 0.0 if (smoothing is None) else smoothing
 
-    def forward(output, target):
+    def forward(self, output, target):
         w = torch.zeros_like(output).scatter(1, target.unsqueeze(1), 1)
         w = w * (1-self.eps) + (1-w) * self.eps / (output.size(1) - 1)
         log_prob = F.log_softmax(output, dim=1)
