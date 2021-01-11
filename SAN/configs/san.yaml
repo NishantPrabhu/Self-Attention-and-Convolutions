@@ -1,31 +1,25 @@
 
-# Configuration for Bert Self attention
+# Configuration for SAN models
 
 epochs: 300
-batch_size: 100
+batch_size: 64
 eval_every: 10
 
 # Models
-bert_encoder:
-  attention: bert
-  num_heads: 9
+encoder:
+  attention: channel
   num_encoder_blocks: 6
-  model_dim: 400
-  ff_dim: 512
-  ff_activation: relu
+  num_heads: 1
+  model_dim: 128
+  ff_dim: 128
   pre_norm: False
-  hierarchical_weight_sharing: True
 
-feature_pooling:
-  resnet: resnet50
-  block: 1
-  pretrained: False
-  model_dim: 400
+feature_pool:
   pool_with_resnet: False 
   pool_downsample_size: 2
 
 clf_head:
-  model_dim: 400
+  model_dim: 128
   num_classes: 10
 
 optimizer:
@@ -35,16 +29,16 @@ optimizer:
 
 scheduler:
   name: cosine
-  warmup_epochs: 15
+  warmup_epochs: 5
+
+criterion:
+  smoothing: 0.1
 
 # Data
 dataset:
   name: cifar10
   root: data/cifar10
   train_transform:
-    random_crop:
-      size: 32
-      padding: 4
     random_flip:
     to_tensor:
     normalize:
