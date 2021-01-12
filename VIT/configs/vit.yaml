@@ -2,8 +2,8 @@
 
 # Configuration for Bert Self attention
 
-epochs: 1000
-batch_size: 128
+epochs: 300
+batch_size: 256
 eval_every: 10
 
 # Models
@@ -16,10 +16,13 @@ encoder:
   attention_dropout_prob: 0.1
 
 patcher:
-  patch_size: 8
+  patch_grid_size: 4
   model_dim: 400
   pre_norm: True
   image_size: [32, 32]
+  resnet_pooling: True
+  resnet_name: resnet18
+  resnet_blocks: 1
 
 clf_head:
   model_dim: 400

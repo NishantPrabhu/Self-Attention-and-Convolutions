@@ -9,6 +9,13 @@ import math
 import torch 
 import torch.nn as nn 
 import torch.nn.functional as F
+from torchvision import models
+
+RESNETS = {
+    'resnet18': models.resnet18,
+    'resnet50': models.resnet50,
+    'resnet101': models.resnet101
+}
 
 
 def gelu(x):
@@ -84,30 +91,62 @@ class PatchExtraction(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.patch_size = config['patch_size']
-        self.h, self.w = config['image_size']
         self.model_dim = config['model_dim']
-        self.num_patches = int((self.h * self.w) / pow(self.patch_size, 2))
+        self.resnet_pooling = config['resnet_pooling']
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+        # Define resnet base if pooling initially with resnet
+        if self.resnet_pooling:
+            resnet_name = config.get('resnet_name', None)
+            resnet_blocks = config.get('resnet_blocks', 1)
+            assert resnet_name in list(RESNETS.keys()), f'Invalid or unspecified resnet {resnet_name}'
+
+            model = RESNETS[resnet_name](pretrained=False)
+            layers = list(model.children())[4 : 4+resnet_blocks]
+            conv0 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
+            bn1 = nn.BatchNorm2d(64)
+            relu1 = nn.ReLU(inplace=True)
+            self.resnet = nn.Sequential(conv0, bn1, relu1, *layers)
+
+            # Output size of resnet
+            rand = torch.rand((1, 3, 32, 32))
+            out = self.resnet(rand)
+            _, resnet_out_dim, resnet_h, resnet_w = out.size()
+
         # Layers
-        self.unfold = nn.Unfold(kernel_size=self.patch_size, stride=self.patch_size)
-        self.feature_upscale = nn.Linear(3 * pow(self.patch_size, 2), self.model_dim)
+        if not self.resnet_pooling:
+            h, w = config['image_size']
+            patch_size = h // config['patch_grid_size']
+            feature_in_dim = 3 * pow(patch_size, 2)
+            self.num_patches = int((h * w) / pow(patch_size, 2))
+        else:
+            patch_size = resnet_h // config['patch_grid_size']
+            feature_in_dim = resnet_out_dim * pow(patch_size, 2)
+            self.num_patches = (resnet_h // patch_size) * (resnet_w // patch_size)
+
+        self.unfold = nn.Unfold(kernel_size=patch_size, stride=patch_size)
+        self.feature_upscale = nn.Linear(feature_in_dim, self.model_dim)
         self.position_embedding = nn.Embedding(self.num_patches+1, self.model_dim)
+
     
     def forward(self, x):
         ''' 
+        If not pooling with resnet -- 
         Input:                      (bs, channels, h, w)
         Patch collection size:      (bs, k^2 * c, num_patches+1)
         Positional encoding:        (bs, k^2 * c, num_patches+1)
         '''
-        patches = self.unfold(x)                                                                    # (bs, k^2 * c, n)
+        # Extract resnet features if specified
+        if self.resnet_pooling:
+            x = self.resnet(x)
+
+        patches = self.unfold(x)                                                                        # (bs, c, n)
         bs, d, _ = patches.size()
-        cls_patch_prepend = torch.Tensor(bs, d, 1).zero_().to(self.device)
-        patches = torch.cat([cls_patch_prepend, patches], dim=-1)                                   # (bs, k^2 * c, n+1)
-        patches = self.feature_upscale(patches.permute(0, 2, 1).contiguous())                       # (bs, n+1, model_dim)
-        pos_embeds = self.position_embedding(torch.arange(self.num_patches+1).to(self.device))      # (bs, n+1, model_dim)
-        out = patches + pos_embeds                                                                  # (bs, n+1, model_dim)
+        cls_patch_prepend = torch.Tensor(bs, d, 1).uniform_(0, 1).to(self.device)
+        patches = torch.cat([cls_patch_prepend, patches], dim=-1)                                       # (bs, c, n+1)
+        patches = self.feature_upscale(patches.permute(0, 2, 1).contiguous())                           # (bs, n+1, model_dim)
+        pos_embeds = self.position_embedding(torch.arange(self.num_patches+1).to(self.device))          # (bs, n+1, model_dim)
+        out = patches + pos_embeds                                                                      # (bs, n+1, model_dim)
         return out
 
 
