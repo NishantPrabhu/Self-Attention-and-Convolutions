@@ -88,6 +88,7 @@ class PatchExtraction(nn.Module):
         self.h, self.w = config['image_size']
         self.model_dim = config['model_dim']
         self.num_patches = int((self.h * self.w) / pow(self.patch_size, 2))
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         # Layers
         self.unfold = nn.Unfold(kernel_size=self.patch_size, stride=self.patch_size)
@@ -102,10 +103,10 @@ class PatchExtraction(nn.Module):
         '''
         patches = self.unfold(x)                                                                    # (bs, k^2 * c, n)
         bs, d, _ = patches.size()
-        cls_patch_prepend = torch.Tensor(bs, d, 1).zero_()
+        cls_patch_prepend = torch.Tensor(bs, d, 1).zero_().to(self.device)
         patches = torch.cat([cls_patch_prepend, patches], dim=-1)                                   # (bs, k^2 * c, n+1)
         patches = self.feature_upscale(patches.permute(0, 2, 1).contiguous())                       # (bs, n+1, model_dim)
-        pos_embeds = self.position_embedding(torch.arange(self.num_patches+1))                      # (bs, n+1, model_dim)
+        pos_embeds = self.position_embedding(torch.arange(self.num_patches+1).to(self.device))      # (bs, n+1, model_dim)
         out = patches + pos_embeds                                                                  # (bs, n+1, model_dim)
         return out
 

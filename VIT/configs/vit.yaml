@@ -2,8 +2,8 @@
 
 # Configuration for Bert Self attention
 
-epochs: 300
-batch_size: 1
+epochs: 1000
+batch_size: 128
 eval_every: 10
 
 # Models
