@@ -29,6 +29,7 @@ class SelfAttention(nn.Module):
         super().__init__()
         self.model_dim = config['model_dim']
         self.heads = config['num_heads']
+        self.hierarchical = config.get('hierarchical_weight_sharing', True)
         self.pre_norm = config.get('pre_norm', True)
 
         # Layers 
@@ -38,7 +39,7 @@ class SelfAttention(nn.Module):
         self.layer_norm = nn.LayerNorm(self.model_dim)
         self.dropout = nn.Dropout(config['attention_dropout_prob'])
 
-    def forward(self, x):
+    def forward(self, x, k=None):
         ''' Input will have size (bs, num_patches, model_dim) '''
         if len(x.size()) != 3:
             raise ValueError(f'Expected 3d tensor as input, got size {x.size()}')
@@ -49,7 +50,8 @@ class SelfAttention(nn.Module):
             x = self.layer_norm(x)          
 
         q = self.query(x).view(bs, n, self.heads, self.model_dim).permute(0, 2, 1, 3)                   # (bs, heads, n, model_dim)
-        k = self.key(x).view(bs, n, self.heads, self.model_dim).permute(0, 2, 1, 3)                     # (bs, heads, n, model_dim)
+        if k is None:
+            k = self.key(x).view(bs, n, self.heads, self.model_dim).permute(0, 2, 1, 3)                 # (bs, heads, n, model_dim)
 
         attention_score = torch.einsum('bhid,bhjd->bhij', [q, k]) / sqrt_normalizer                     # (bs, heads, n, n)
         attention_probs = self.dropout(F.softmax(attention_score, dim=-1))                              # (bs, heads, n, n)
@@ -60,7 +62,10 @@ class SelfAttention(nn.Module):
         if not self.pre_norm:
             out = self.layer_norm(out)
 
-        return out, attention_probs
+        if self.hierarchical:   
+            return out, attention_probs, k
+        else:
+            return out, attention_probs, None
 
 
 class Feedforward(nn.Module):
@@ -157,10 +162,10 @@ class EncoderBlock(nn.Module):
         self.attention = SelfAttention(config)
         self.feedfwd = Feedforward(config)
 
-    def forward(self, x):
-        out, attn_probs = self.attention(x)
+    def forward(self, x, k=None):
+        out, attn_probs, k = self.attention(x, k)
         out = self.feedfwd(out)
-        return out, attn_probs
+        return out, attn_probs, k
 
 
 class Encoder(nn.Module):
@@ -169,13 +174,25 @@ class Encoder(nn.Module):
         super().__init__()
         self.num_blocks = config['num_encoder_blocks']
         self.heads = config['num_heads']
-        self.blocks = nn.ModuleList([EncoderBlock(config) for _ in range(self.num_blocks)])
+        self.hierarchical = config.get('hierarchical_weight_sharing', True)
+
+        if self.hierarchical:
+            self.block = EncoderBlock(config)
+        else:
+            self.blocks = nn.ModuleList([EncoderBlock(config) for _ in range(self.num_blocks)])
 
     def forward(self, x, return_attn=False):
         attn_scores = {}                                            # Layerwise attention scores collector
-        for i in range(self.num_blocks):
-            x, att = self.blocks[i](x)
-            attn_scores[f'layer_{i}'] = att
+        k = None
+
+        if not self.hierarchical: 
+            for i in range(self.num_blocks):
+                x, att, k = self.blocks[i](x, k)
+                attn_scores[f'layer_{i}'] = att
+        else:
+            for i in range(self.num_blocks):
+                x, att, k = self.block(x, k)
+                attn_scores[f'layer_{i}'] = att
 
         if return_attn:
             return x, attn_scores

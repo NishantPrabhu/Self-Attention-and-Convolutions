@@ -12,7 +12,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-def position(H, W):
+def position(H, W, nchw=True):
     '''
     Positional embedding for SAN
     '''
@@ -22,8 +22,62 @@ def position(H, W):
     else:
         loc_w = torch.linspace(-1, 1, W).unsqueeze(0).repeat(H, 1)
         loc_h = torch.linspace(-1, 1, H).unsqueeze(1).repeat(1, W)
-    loc = torch.cat([loc_w.unsqueeze(0), loc_h.unsqueeze(0)], dim=0).unsqueeze(0)
-    return loc.permute(0, 2, 3, 1).contiguous()
+    loc = torch.cat([loc_w.unsqueeze(0), loc_h.unsqueeze(0)], dim=0).unsqueeze(0)                   # (1, 2, h, w)
+    
+    if not nchw:
+        return loc.permute(0, 2, 3, 1).contiguous()                                                 # (1, h, w, 2)
+    else:
+        return loc                                                                                  # (1, 2, h, w)
+
+
+def position_2d(H, W, nchw=True):
+    '''
+    Positional embedding for SAN
+    '''
+    if torch.cuda.is_available():
+        loc_w = torch.linspace(-1, 1, W).cuda().unsqueeze(0).repeat(H, 1)
+        loc_h = torch.linspace(-1, 1, H).cuda().unsqueeze(1).repeat(1, W)
+    else:
+        loc_w = torch.linspace(-1, 1, W).unsqueeze(0).repeat(H, 1)
+        loc_h = torch.linspace(-1, 1, H).unsqueeze(1).repeat(1, W)
+    loc = torch.cat([loc_w.unsqueeze(0), loc_h.unsqueeze(0)], dim=0).unsqueeze(0)                   # (1, 2, h, w)
+    
+    if not nchw:
+        return loc.permute(0, 2, 3, 1).contiguous()                                                 # (1, h, w, 2)
+    else:
+        return loc                                                                                  # (1, 2, h, w)
+
+
+class PairwiseAttention(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        self.model_dim = config['model_dim']
+        self.pre_norm = config['pre_norm']
+
+        # Layers
+        self.query = nn.Conv2d(self.model_dim, self.model_dim, bias=False)
+        self.key = nn.Conv2d(self.model_dim, self.model_dim, bias=False)
+        self.conv_w = nn.Sequential(
+            nn.BatchNorm2d(2),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(2, self.model_dim, kernel_size=1, bias=False),
+            nn.BatchNorm2d(self.model_dim), 
+            nn.ReLU(inplace=True),
+            nn.Conv2d(self.model_dim, self.model_dim, kernel_size=1))
+        self.conv_p = nn.Conv2d(2, 2, kernel_size=1)
+        self.softmax = nn.Softmax(dim=-2)
+
+    def forward(self, x):
+        ''' Input has size (b, c, h, w) '''
+
+        batch_size, c, h, w = x.size()
+        q = self.query(x).view(batch_size, self.model_dim, -1)                                      # (bs, model_dim, n)
+        k = self.key(x).view(batch_size, self.model_dim, -1)                                        # (bs, model_dim, n)
+
+        # Compute attention score
+        attention_score = torch.einsum('bdij,bdkl->bdil', q.unqsueeze(-1), k.unsqueeze(-2))         # (bs, model_dim, n, n)
+        position_embedding = self.conv_p(position(h, w, True).view(1, 2, -1))                       # (bs, 2, n)
 
 
 class ChannelAttention(nn.Module):
@@ -211,7 +265,7 @@ class SAN(nn.Module):
 
     def forward(self, x, return_attn=False):
         bs, h, w, c = x.size() 
-        p_enc = self.positional_features(position(h, w))                                            # Positional encoding
+        p_enc = self.positional_features(position(h, w, False))                                     # Positional encoding
         x = torch.cat([x, p_enc.repeat(x.size(0), 1, 1, 1)], dim=-1)                                # (bs, h, w, 14)
         x = self.feature_upscale(x)                                                                 # (bs, h, w, model_dim)
 

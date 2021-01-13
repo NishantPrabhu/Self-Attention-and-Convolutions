@@ -14,6 +14,7 @@ encoder:
   ff_dim: 512
   pre_norm: True
   attention_dropout_prob: 0.1
+  hierarchical_weight_sharing: True
 
 patcher:
   patch_grid_size: 4
