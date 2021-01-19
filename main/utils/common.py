@@ -21,6 +21,10 @@ COLORS = {
 }
 
 
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+
 def progress_bar(progress=0, status="", bar_len=20):
 
     status = status.ljust(30)

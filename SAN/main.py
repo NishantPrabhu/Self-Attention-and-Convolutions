@@ -5,13 +5,12 @@ Trainer class and main script.
 Authors: Mukund Varma T, Nishant Prabhu
 """
 
-import os 
+import os
 import wandb
-import argparse 
-import torch 
-import torch.nn as nn
-from models import networks
-from datetime import datetime as dt 
+import argparse
+import torch
+from models import san_networks
+from datetime import datetime as dt
 from utils import common, train_utils, data_utils, losses
 
 
@@ -26,17 +25,22 @@ class Trainer:
         self.config, self.output_dir, self.logger, self.device = common.init_experiment(args, seed=420)
 
         # Networks and optimizers
-        self.encoder = networks.SAN(self.config['encoder']).to(self.device)
-        self.feature_pool = networks.FeaturePooling(self.config['feature_pool']).to(self.device)
-        self.clf_head = networks.ClassificationHead(self.config['clf_head']).to(self.device)
+        self.encoder = san_networks.Encoder(self.config['encoder']).to(self.device)
 
         self.optim = train_utils.get_optimizer(
-            config=self.config['optimizer'], 
-            params=list(self.encoder.parameters())+list(self.clf_head.parameters()))
+            config=self.config['optimizer'],
+            params=self.encoder.parameters())
         
         self.scheduler, self.warmup_epochs = train_utils.get_scheduler(
-            config = {**self.config['scheduler'], 'epochs': self.config['epochs']}, 
-            optimizer = self.optim)
+            config={**self.config['scheduler'], 'epochs': self.config['epochs']},
+            optimizer=self.optim)
+
+        # Total trainable params
+        total = common.count_parameters(self.encoder)
+        if total / 1e06 >= 1:
+            self.logger.record(f"Total trainable parameters: {round(total/1e06, 2)}M", mode='info')
+        else:
+            self.logger.record(f"Total trainable parameters: {total}", mode='info')
 
         # Dataloaders
         self.train_loader, self.val_loader = data_utils.get_dataloader({
@@ -57,20 +61,18 @@ class Trainer:
         self.logger.write(run.get_url(), mode='info')
 
         # Check for any saved state in the output directory and load
-        if os.path.exists(os.path.join(self.output_dir, 'last.ckpt')):
+        if os.path.exists(os.path.join(self.output_dir, 'last_state.ckpt')):
             self.done_epochs = self.load_state()
-            self.logger.print(f"Loaded saved state. Resuming from {self.done_epochs} epochs", mode="info")
-            self.logger.write(f"Loaded saved state. Resuming from {self.done_epochs} epochs", mode="info")
+            self.logger.record(f"Loaded saved state. Resuming from {self.done_epochs} epochs", mode="info")
         else:
             self.done_epochs = 0
-            self.logger.print(f"No saved state found. Starting fresh", mode="info")
-            self.logger.write(f"No saved state found. Starting fresh", mode="info")
+            self.logger.record("No saved state found. Starting fresh", mode="info")
 
 
     def train_one_step(self, data):
 
         img, labels = data[0].to(self.device), data[1].to(self.device)
-        out = self.clf_head(self.encoder(self.feature_pool(img), return_attn=False))
+        out = self.encoder(img)
         
         # Loss and update
         self.optim.zero_grad()
@@ -89,7 +91,7 @@ class Trainer:
 
         img, labels = data[0].to(self.device), data[1].to(self.device)
         with torch.no_grad():
-            out = self.clf_head(self.encoder(self.feature_pool(img), return_attn=False))
+            out = self.encoder(img)
         
         loss = self.criterion(out, labels)
         pred = out.argmax(dim=-1)	
@@ -104,8 +106,6 @@ class Trainer:
         state = {
             'epoch': epoch,
             'encoder': self.encoder.state_dict(),
-            'feature_pool': self.feature_pool.state_dict(),
-            'clf': self.clf_head.state_dict(),
             'optim': self.optim.state_dict(),
             'scheduler': self.scheduler.state_dict()
         }
@@ -116,8 +116,6 @@ class Trainer:
         
         data = {
             'encoder': self.encoder.state_dict(),
-            'feature_pool': self.feature_pool.state_dict(),
-            'clf': self.clf_head.state_dict()
         }
         torch.save(data, os.path.join(self.output_dir, 'best_model.ckpt'))
 
@@ -127,8 +125,6 @@ class Trainer:
         last_state = torch.load(os.path.join(self.output_dir, 'last_state.ckpt'))
         done_epochs = last_state['epoch']-1
         self.encoder.load_state_dict(last_state['encoder'])
-        self.feature_pool.load_state_dict(last_state['feature_pool'])
-        self.clf_head.load_state_dict(last_state['clf'])
         self.optim.load_state_dict(last_state['optim'])
         self.scheduler.load_state_dict(last_state['scheduler'])
         return done_epochs
@@ -145,7 +141,7 @@ class Trainer:
 
     def train(self):
 
-        print()
+        print()        
         # Training loop
         for epoch in range(self.config['epochs'] - self.done_epochs + 1):
 

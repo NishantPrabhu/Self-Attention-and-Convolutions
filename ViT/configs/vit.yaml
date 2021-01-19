@@ -1,9 +1,7 @@
-
-
 # Configuration for Bert Self attention
 
-epochs: 300
-batch_size: 256
+epochs: 100
+batch_size: 32
 eval_every: 10
 
 # Models
@@ -14,10 +12,11 @@ encoder:
   ff_dim: 512
   pre_norm: True
   attention_dropout_prob: 0.1
+  attention_norm: False
   hierarchical_weight_sharing: True
 
 patcher:
-  patch_grid_size: 4
+  patch_grid_size: 16
   model_dim: 400
   pre_norm: True
   image_size: [32, 32]
@@ -31,12 +30,12 @@ clf_head:
 
 optimizer:
   name: sgd
-  lr: 0.1
+  lr: 0.01
   weight_decay: 1.e-04
 
 scheduler:
   name: cosine
-  warmup_epochs: 15
+  warmup_epochs: 5
 
 # Data
 dataset:

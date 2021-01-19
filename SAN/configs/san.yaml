@@ -2,24 +2,14 @@
 # Configuration for SAN models
 
 epochs: 300
-batch_size: 64
+batch_size: 100
 eval_every: 10
 
 # Models
 encoder:
-  attention: channel
-  num_encoder_blocks: 6
-  num_heads: 1
-  model_dim: 128
-  ff_dim: 128
-  pre_norm: False
-
-feature_pool:
-  pool_with_resnet: False 
-  pool_downsample_size: 2
-
-clf_head:
-  model_dim: 128
+  sa_type: 'patch'
+  layers: [2, 2, 2, 2]
+  kernels: [3, 3, 3, 3]
   num_classes: 10
 
 optimizer:

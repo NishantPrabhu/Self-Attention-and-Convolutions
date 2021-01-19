@@ -21,8 +21,11 @@ COLORS = {
 }
 
 
-def progress_bar(progress=0, status="", bar_len=20):
+def count_parameters(model):
+    return sum([p.numel() for p in model.parameters() if p.requires_grad])
 
+
+def progress_bar(progress=0, status="", bar_len=20):
     status = status.ljust(30)
     if progress == 1:
         status = "{}".format(status.ljust(30))
@@ -128,7 +131,7 @@ def init_experiment(args, seed=420):
     config = open_config(args["config"])
 
     # Setup logging directory
-    output_dir = os.path.join(config["dataset"]['name'], config['encoder']['attention'], args["output"])
+    output_dir = os.path.join(config["dataset"]['name'], config['encoder']['sa_type'], args["output"])
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     logger = Logger(output_dir)

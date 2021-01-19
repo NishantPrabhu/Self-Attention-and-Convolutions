@@ -71,10 +71,8 @@ class Feedforward(nn.Module):
 
         if self.pre_norm:
             x = self.layer_norm(x)
-
         out = self.fc2(self.act(self.fc1(x)))
         out = out + x
-
         if not self.pre_norm:
             out = self.layer_norm(out)
 

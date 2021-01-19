@@ -16,6 +16,7 @@ from models import attention, networks
 from utils import common, train_utils, data_utils
 
 
+
 class Trainer:
     '''
     Helper class for training models, checkpointing and logging.
@@ -30,6 +31,12 @@ class Trainer:
         self.encoder = networks.BertEncoder(self.config['bert_encoder']).to(self.device)
         self.feature_pool = networks.FeaturePooling(self.config['feature_pooling']).to(self.device)
         self.clf_head = networks.ClassificationHead(self.config['clf_head']).to(self.device)
+
+        # Total parameters
+        enc_params = common.count_parameters(self.encoder)
+        fp_params = common.count_parameters(self.feature_pool)
+        clf_params = common.count_parameters(self.clf_head)
+        print(f"\nModel parameter count: {round((enc_params + fp_params + clf_params)/1e06, 2)}M\n")
 
         self.optim = train_utils.get_optimizer(
             config = self.config['optimizer'], 
@@ -64,8 +71,12 @@ class Trainer:
             self.logger.write(f"Loaded saved state. Resuming from {self.done_epochs} epochs", mode="info")
         else:
             self.done_epochs = 0
-            self.logger.print(f"No saved state found. Starting fresh", mode="info")
-            self.logger.write(f"No saved state found. Starting fresh", mode="info")
+            self.logger.print("No saved state found. Starting fresh", mode="info")
+            self.logger.write("No saved state found. Starting fresh", mode="info")
+
+        # Check if a model has to be loaded from ckpt
+        if args['load'] is not None:
+            self.load_model(args['load'])
 
 
     def train_one_step(self, data):
@@ -122,6 +133,18 @@ class Trainer:
         torch.save(data, os.path.join(self.output_dir, 'best_model.ckpt'))
 
 
+    def load_model(self, expt_dir):
+
+        try:
+            ckpt = torch.load(os.path.join(expt_dir, 'best_model.ckpt'))
+            self.encoder.load_state_dict(ckpt['encoder'])
+            self.feature_pool.load_state_dict(ckpt['conv']) 
+            self.clf_head.load_state_dict(ckpt['clf'])
+            print('[INFO] Successfully loaded saved model!')
+        except Exception as e:
+            print(e)
+
+
     def load_state(self):
         
         last_state = torch.load(os.path.join(self.output_dir, 'last_state.ckpt'))
@@ -154,14 +177,21 @@ class Trainer:
             fvecs, attn_scores = self.encoder(self.feature_pool(img), return_attn=True)
         _, h, w, _ = self.feature_pool(img).size() 
 
+        # Obtain original image by inverting transform
+        img_normal = data_utils.inverse_transform(img.squeeze(0), [0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
+
         # attn_scores is a dict with num_encoder_blocks items 
         # Each item value has size (batch_size, num_heads, num_pixels, num_pixels)
         heads = self.config['bert_encoder']['num_heads']
         layers = self.config['bert_encoder']['num_encoder_blocks']
-        fig = plt.figure(figsize=(10, 7))
+        fig = plt.figure(figsize=(11, 7))
+        ax = fig.add_subplot(layers+1, heads, 5)
+        ax.get_xaxis().set_ticks([])
+        ax.get_yaxis().set_ticks([])
+        ax.imshow(img_normal.permute(1, 2, 0).cpu().numpy())
         count = 1
 
-        for name, attn in attn_scores.items():
+        for j, (name, attn) in enumerate(attn_scores.items()):
 
             # Average attention over pixels
             # Attention has size (1, h, w, heads, h, w)
@@ -169,13 +199,16 @@ class Trainer:
             attn = attn.mean(dim=0).view(-1, heads, h, w).mean(dim=0).detach().cpu().numpy()
             
             for i in range(attn.shape[0]):
-                fig.add_subplot(layers, heads, count)
-                plt.imshow(attn[i], cmap='Reds')
-                plt.axis('off')
+                ax = fig.add_subplot(layers+1, heads, count+heads)
+                ax.get_xaxis().set_ticks([])
+                ax.get_yaxis().set_ticks([])
+                ax.imshow(attn[i], cmap='Reds')
+                if i == 0:
+                    ax.set_ylabel(f'Layer {j+1}', labelpad=10)
                 count += 1
 
-        plt.tight_layout(pad=1)
-        plt.savefig(os.path.join(self.output_dir, f'attn_map_{epoch+1}.png'), pad_inches=0.05)
+        plt.tight_layout(pad=0.5)
+        plt.savefig(os.path.join(self.output_dir, 'attn_map_final.png'), pad_inches=0.05)
 
 
     def train(self):
@@ -240,11 +273,14 @@ class ResnetTrainer:
 
         # Networks and optimizers
         self.model = networks.ResnetClassifier(self.config['resnet']).to(self.device)
-        common.print_network(self.model, 'Resnet')
         self.optim = train_utils.get_optimizer(config=self.config['optimizer'], params=self.model.parameters())
         self.scheduler, self.warmup_epochs = train_utils.get_scheduler(
             config = {**self.config['scheduler'], 'epochs': self.config['epochs']}, 
             optimizer = self.optim)
+
+        # Parameter count
+        num_params = common.count_parameters(self.model)
+        print(f"\nModel parameter count: {round(num_params/1e06, 2)}M\n")
 
         # Warmup handling
         if self.warmup_epochs > 0:
@@ -271,8 +307,8 @@ class ResnetTrainer:
             self.logger.write(f"Loaded saved state. Resuming from {self.done_epochs} epochs", mode="info")
         else:
             self.done_epochs = 0
-            self.logger.print(f"No saved state found. Starting fresh", mode="info")
-            self.logger.write(f"No saved state found. Starting fresh", mode="info")
+            self.logger.print("No saved state found. Starting fresh", mode="info")
+            self.logger.write("No saved state found. Starting fresh", mode="info")
 
 
     def train_one_step(self, data):
@@ -397,14 +433,16 @@ if __name__ == '__main__':
     # Parse arguments
     ap = argparse.ArgumentParser()
     ap.add_argument('-c', '--config', required=True, help='Path to configuration file')
+    ap.add_argument('-l', '--load', default=None, help='Path to output dir from which pretrained models will be loaded')
     ap.add_argument('-o', '--output', default=dt.now().strftime('%Y-%m-%d_%H-%M'), type=str, help='Path to output file')
     args = vars(ap.parse_args())
 
     # For training attention networks
-    # trainer = Trainer(args)
+    trainer = Trainer(args)
+    # trainer.visualize_attention(1)
 
     # For training a normal resnet
-    trainer = ResnetTrainer(args)
+    # trainer = ResnetTrainer(args)
 
     # Train 
     trainer.train()

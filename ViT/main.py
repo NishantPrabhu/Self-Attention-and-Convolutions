@@ -57,7 +57,7 @@ class Trainer:
         self.logger.write(run.get_url(), mode='info')
 
         # Check for any saved state in the output directory and load
-        if os.path.exists(os.path.join(self.output_dir, 'last.ckpt')):
+        if os.path.exists(os.path.join(self.output_dir, 'last_state.ckpt')):
             self.done_epochs = self.load_state()
             self.logger.print(f"Loaded saved state. Resuming from {self.done_epochs} epochs", mode="info")
             self.logger.write(f"Loaded saved state. Resuming from {self.done_epochs} epochs", mode="info")
@@ -124,13 +124,12 @@ class Trainer:
 
     def load_state(self):
         
-        last_state = torch.load(os.path.join(self.output_dir, 'last_state.ckpt'))
-        done_epochs = last_state['epoch']-1
-        self.encoder.load_state_dict(last_state['encoder'])
-        self.patcher.load_state_dict(last_state['patcher']) 
-        self.clf_head.load_state_dict(last_state['clf'])
-        self.optim.load_state_dict(last_state['optim'])
-        self.scheduler.load_state_dict(last_state['scheduler'])
+        done_epochs = torch.load(os.path.join(self.output_dir, 'last_state.ckpt'))['epoch']-1
+        self.encoder.load_state_dict(torch.load(os.path.join(self.output_dir, 'last_state.ckpt'))['encoder'])
+        self.patcher.load_state_dict(torch.load(os.path.join(self.output_dir, 'last_state.ckpt'))['patcher']) 
+        self.clf_head.load_state_dict(torch.load(os.path.join(self.output_dir, 'last_state.ckpt'))['clf'])
+        self.optim.load_state_dict(torch.load(os.path.join(self.output_dir, 'last_state.ckpt'))['optim'])
+        self.scheduler.load_state_dict(torch.load(os.path.join(self.output_dir, 'last_state.ckpt'))['scheduler'])
         
         return done_epochs
 
@@ -152,27 +151,27 @@ class Trainer:
 
             train_meter = common.AverageMeter()
             val_meter = common.AverageMeter()
-            self.logger.record('Epoch [{:3d}/{}]'.format(epoch+1, self.config['epochs']), mode='train')
-            self.adjust_learning_rate(epoch+1)
+            self.logger.record('Epoch [{:3d}/{}]'.format(self.done_epochs+epoch+1, self.config['epochs']), mode='train')
+            self.adjust_learning_rate(self.done_epochs+epoch+1)
 
             for idx, batch in enumerate(self.train_loader):
                 train_metrics = self.train_one_step(batch)
-                wandb.log({'Loss': train_metrics['Loss'], 'Epoch': epoch+1})
+                wandb.log({'Loss': train_metrics['Loss'], 'Epoch': self.done_epochs+epoch+1})
                 train_meter.add(train_metrics)
                 common.progress_bar(progress=idx/len(self.train_loader), status=train_meter.return_msg())
 
             common.progress_bar(progress=1, status=train_meter.return_msg())
             self.logger.write(train_meter.return_msg(), mode='train')
-            wandb.log({'Train accuracy': train_meter.return_metrics()['Accuracy'], 'Epoch': epoch+1})
-            wandb.log({'Learning rate': self.optim.param_groups[0]['lr'], 'Epoch': epoch+1})
+            wandb.log({'Train accuracy': train_meter.return_metrics()['Accuracy'], 'Epoch': self.done_epochs+epoch+1})
+            wandb.log({'Learning rate': self.optim.param_groups[0]['lr'], 'Epoch': self.done_epochs+epoch+1})
 
             # Save state
-            self.save_state(epoch)
+            self.save_state(self.done_epochs+epoch)
 
             # Validation
             if epoch % self.config['eval_every'] == 0:
 
-                self.logger.record('Epoch [{:3d}/{}]'.format(epoch+1, self.config['epochs']), mode='val')
+                self.logger.record('Epoch [{:3d}/{}]'.format(self.done_epochs+epoch+1, self.config['epochs']), mode='val')
                 
                 for idx, batch in enumerate(self.val_loader):
                     val_metrics = self.validate_one_step(batch)
@@ -182,7 +181,8 @@ class Trainer:
                 common.progress_bar(progress=1, status=val_meter.return_msg())
                 self.logger.write(val_meter.return_msg(), mode='val')
                 val_metrics = val_meter.return_metrics()
-                wandb.log({'Validation loss': val_metrics['Loss'], 'Validation accuracy': val_metrics['Accuracy'], 'Epoch': epoch+1})
+                wandb.log({'Validation loss': val_metrics['Loss'], 'Validation accuracy': val_metrics['Accuracy'], 
+                            'Epoch': self.done_epochs+epoch+1})
 
                 if val_metrics['Accuracy'] > self.best_val_acc:
                     self.best_val_acc = val_metrics['Accuracy']

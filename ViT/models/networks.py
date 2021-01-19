@@ -30,12 +30,14 @@ class SelfAttention(nn.Module):
         self.model_dim = config['model_dim']
         self.heads = config['num_heads']
         self.hierarchical = config.get('hierarchical_weight_sharing', True)
+        self.attention_norm = config.get('attention_norm', False)
         self.pre_norm = config.get('pre_norm', True)
 
         # Layers 
         self.query = nn.Linear(self.model_dim, self.model_dim*self.heads, bias=False)
         self.key = nn.Linear(self.model_dim, self.model_dim*self.heads, bias=False)
-        self.value = nn.Linear(self.model_dim*self.heads, self.model_dim, bias=False)
+        self.value = nn.Linear(self.model_dim, self.model_dim*self.heads, bias=False)
+        self.out = nn.Linear(self.model_dim*self.heads, self.model_dim, bias=True)
         self.layer_norm = nn.LayerNorm(self.model_dim)
         self.dropout = nn.Dropout(config['attention_dropout_prob'])
 
@@ -45,20 +47,24 @@ class SelfAttention(nn.Module):
             raise ValueError(f'Expected 3d tensor as input, got size {x.size()}')
 
         bs, n, _ = x.size()                                                                             # (bs, n, model_dim)
-        sqrt_normalizer = math.sqrt(self.model_dim)
         if self.pre_norm:
             x = self.layer_norm(x)          
 
         q = self.query(x).view(bs, n, self.heads, self.model_dim).permute(0, 2, 1, 3)                   # (bs, heads, n, model_dim)
+        v = self.value(x).view(bs, n, self.heads, self.model_dim).permute(0, 2, 1, 3)                   # (bs, heads, n, model_dim)
         if k is None:
             k = self.key(x).view(bs, n, self.heads, self.model_dim).permute(0, 2, 1, 3)                 # (bs, heads, n, model_dim)
 
-        attention_score = torch.einsum('bhid,bhjd->bhij', [q, k]) / sqrt_normalizer                     # (bs, heads, n, n)
+        attention_score = torch.einsum('bhid,bhjd->bhij', [q, k])                                       # (bs, heads, n, n)
+        if not self.attention_norm:
+            attention_score = attention_score / math.sqrt(self.model_dim)
         attention_probs = self.dropout(F.softmax(attention_score, dim=-1))                              # (bs, heads, n, n)
-        context = torch.einsum('bhij,bjd->bhid', [attention_probs, x])                                  # (bs, heads, n, model_dim)
+        if self.attention_norm:
+            attention_probs = attention_probs / (attention_probs.sum(dim=-2, keepdim=True) + 1e-10)
+        context = torch.einsum('bhij,bhjd->bhid', [attention_probs, v])                                 # (bs, heads, n, model_dim)
         context = context.permute(0, 2, 1, 3).contiguous().view(bs, n, -1)                              # (bs, n, heads * model_dim)
         
-        out = self.value(context) + x                                                                   # (bs, n, model_dim)
+        out = self.out(context) + x                                                                     # (bs, n, model_dim)
         if not self.pre_norm:
             out = self.layer_norm(out)
 
@@ -107,7 +113,7 @@ class PatchExtraction(nn.Module):
             assert resnet_name in list(RESNETS.keys()), f'Invalid or unspecified resnet {resnet_name}'
 
             model = RESNETS[resnet_name](pretrained=False)
-            layers = list(model.children())[4 : 4+resnet_blocks]
+            layers = list(model.children())[4:4+resnet_blocks]
             conv0 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
             bn1 = nn.BatchNorm2d(64)
             relu1 = nn.ReLU(inplace=True)
