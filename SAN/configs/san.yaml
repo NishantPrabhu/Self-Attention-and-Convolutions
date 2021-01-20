@@ -7,8 +7,8 @@ eval_every: 10
 
 # Models
 encoder:
-  sa_type: 'patch'
-  layers: [2, 2, 2, 2]
+  sa_type: 'patch_hier'
+  layers: [10, 10, 10, 10]
   kernels: [3, 3, 3, 3]
   num_classes: 10
 
@@ -19,7 +19,7 @@ optimizer:
 
 scheduler:
   name: cosine
-  warmup_epochs: 5
+  warmup_epochs: 10
 
 criterion:
   smoothing: 0.1
