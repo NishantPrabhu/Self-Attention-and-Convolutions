@@ -127,29 +127,29 @@ class Encoder(nn.Module):
         self.hier = 'hier' in config['sa_type']
         self.layers = layers
 
-        c = 256
-        self.conv_in, self.bn_in = conv1x1(3, c), nn.BatchNorm2d(c)
-        self.enc = Attention(sa_type, c, c//16, c, 8, 3, stride=1)
-        self.qv_mlp = nn.Sequential(
-            nn.Conv2d(c, 2*c, kernel_size=1),
-            nn.ReLU(),
-            nn.Conv2d(2*c, c, kernel_size=1)
-        )
-        self.qv_bn = nn.BatchNorm2d(c)
-        self.k_mlp = nn.Sequential(
-            nn.Conv2d(c//16, 2*c, kernel_size=1),
-            nn.ReLU(),
-            nn.Conv2d(2*c, c//16, kernel_size=1)
-        )
-        self.k_bn = nn.BatchNorm2d(c//16)
         # c = 256
         # self.conv_in, self.bn_in = conv1x1(3, c), nn.BatchNorm2d(c)
-        # self.conv0, self.bn0 = conv1x1(c, c), nn.BatchNorm2d(c)
-        # self.enc_layer = self._make_layer(sa_type, Bottleneck, c, layers[0], kernels[0])
-        # self.conv2, self.bn2 = conv1x1(c//4, c), nn.BatchNorm2d(c)
-        # self.conv3, self.bn3 = conv1x1(c//4, c), nn.BatchNorm2d(c)
-        # self.conv4, self.bn4 = conv1x1(c//4, c), nn.BatchNorm2d(c)
+        # self.attention = Attention(sa_type, c, c//16, c, 8, 3, stride=1)
+        # self.qv_mlp = nn.Sequential(
+        #     nn.Conv2d(c, 2*c, kernel_size=1),
+        #     nn.ReLU(),
+        #     nn.Conv2d(2*c, c, kernel_size=1)
+        # )
+        # self.qv_bn = nn.BatchNorm2d(c)
+        # self.k_mlp = nn.Sequential(
+        #     nn.Conv2d(c//16, 2*c, kernel_size=1),
+        #     nn.ReLU(),
+        #     nn.Conv2d(2*c, c//16, kernel_size=1)
+        # )
+        # self.k_bn = nn.BatchNorm2d(c//16)
 
+        c = 256
+        self.conv_in, self.bn_in = conv1x1(3, c), nn.BatchNorm2d(c)
+        self.enc_layer = self._make_layer(sa_type, Bottleneck, c, layers[0], kernels[0])
+        self.conv0, self.bn0 = conv1x1(c, c), nn.BatchNorm2d(c)
+        self.conv1, self.bn1 = conv1x1(c, c), nn.BatchNorm2d(c)
+        self.conv2, self.bn2 = conv1x1(c, c), nn.BatchNorm2d(c)
+        self.conv3, self.bn3 = conv1x1(c, c), nn.BatchNorm2d(c)
 
         # self.layer0 = self._make_layer(sa_type, Bottleneck, c, layers[0], kernels[0])
         # self.transition_0 = self._trans_layer(c, c*4)
@@ -185,84 +185,55 @@ class Encoder(nn.Module):
 
     def forward(self, x):
         k = None
-        x = self.pool(self.relu(self.bn_in(self.conv_in(x))))
+        x = self.relu(self.bn_in(self.conv_in(x)))
         
+        # if self.hier:
+            # x, k = self.enc(x, k)
+            # x = x + self.qv_mlp(self.qv_bn(x))
+            # k = k + self.k_mlp(self.k_bn(k))
+
+            # x, k = self.enc(x, k)
+            # x = x + self.qv_mlp(self.qv_bn(x))
+            # k = k + self.k_mlp(self.k_bn(k))
+
+            # x, k = self.enc(x, k)
+            # x = x + self.qv_mlp(self.qv_bn(x))
+            # k = k + self.k_mlp(self.k_bn(k))
+
+            # x, k = self.enc(x, k)
+            # x = x + self.qv_mlp(self.qv_bn(x))
+            # k = k + self.k_mlp(self.k_bn(k))
+
         if self.hier:
-            x, k = self.enc(x, k)
-            x = x + self.qv_mlp(self.qv_bn(x))
-            k = k + self.k_mlp(self.k_bn(k))
-
-            x, k = self.enc(x, k)
-            x = x + self.qv_mlp(self.qv_bn(x))
-            k = k + self.k_mlp(self.k_bn(k))
-
-            x, k = self.enc(x, k)
-            x = x + self.qv_mlp(self.qv_bn(x))
-            k = k + self.k_mlp(self.k_bn(k))
-
-            x, k = self.enc(x, k)
-            x = x + self.qv_mlp(self.qv_bn(x))
-            k = k + self.k_mlp(self.k_bn(k))
-
-        #     x = self.conv0(self.pool(x))
-        #     x, k = self.enc_layer([x, k])
-
-
-        #     # for _ in range(self.layers[0]):
-        #         # x, k = self.layer0([x, k])
-        #     # x = self.relu(self.bn0(x))
-        #     k = self.transition_0(self.pool(k))
+            x = self.conv0(x)
+            for _ in range(self.layers[0]):
+                x, k = self.enc_layer([x, k])
+            x = self.relu(self.bn0(x))
             
-        #     x = self.conv1(self.pool(x))
-        #     for _ in range(self.layers[1]):
-        #         x, k = self.layer1([x, k])
-        #     x = self.relu(self.bn1(x))
-        #     k = self.transition_1(self.pool(k))
+            x = self.conv1(x)
+            for _ in range(self.layers[1]):
+                x, k = self.enc_layer([x, k])
+            x = self.relu(self.bn1(x))
 
-        #     x = self.conv2(self.pool(x))
-        #     for _ in range(self.layers[2]):
-        #         x, k = self.layer2([x, k])
-        #     x = self.relu(self.bn2(x))
-        #     k = self.transition_2(self.pool(k))
+            x = self.conv2(x)
+            for _ in range(self.layers[2]):
+                x, k = self.enc_layer([x, k])
+            x = self.relu(self.bn2(x))
 
-        #     x = self.conv3(self.pool(x))
-        #     for _ in range(self.layers[3]):
-        #         x, k = self.layer3([x, k])
-        #     x = self.relu(self.bn3(x))
-
-        # # if self.hier:
-        # #     x = self.conv0(x)
-        # #     for _ in range(self.layers[0]):
-        # #         x, k = self.layer0([x, k])
-        # #     x = self.relu(self.bn0(x))
-        # #     k = self.transition_0(self.pool(k))
-            
-        # #     x = self.conv1(x)
-        # #     for _ in range(self.layers[1]):
-        # #         x, k = self.layer1([x, k])
-        # #     x = self.relu(self.bn1(x))
-        # #     k = self.transition_1(self.pool(k))
-
-        # #     x = self.conv2(x)
-        # #     for _ in range(self.layers[2]):
-        # #         x, k = self.layer2([x, k])
-        # #     x = self.relu(self.bn2(x))
-        # #     k = self.transition_2(self.pool(k))
-
-        # #     x = self.conv3(x)
-        # #     for _ in range(self.layers[3]):
-        # #         x, k = self.layer3([x, k])
-        # #     x = self.relu(self.bn3(x))
+            x = self.conv3(x)
+            for _ in range(self.layers[3]):
+                x, k = self.enc_layer([x, k])
+            x = self.relu(self.bn3(x))
         
-        # else:
-        #     x, k = self.layer0([self.conv0(self.pool(x)), k])
-        #     x = self.relu(self.bn0(x))
-        #     x, k = self.layer1([self.conv1(self.pool(x)), k])
-        #     x = self.relu(self.bn1(x))
-        #     x, k = self.layer2([self.conv2(self.pool(x)), k])
-        #     x = self.relu(self.bn2(x))
-        #     x, k = self.layer3([self.conv3(self.pool(x)), k])
-        #     x = self.relu(self.bn3(x))
+        else:
+            x, k = self.layer0([self.conv0(self.pool(x)), k])
+            x = self.relu(self.bn0(x))
+            x, k = self.layer1([self.conv1(self.pool(x)), k])
+            x = self.relu(self.bn1(x))
+            x, k = self.layer2([self.conv2(self.pool(x)), k])
+            x = self.relu(self.bn2(x))
+            x, k = self.layer3([self.conv3(self.pool(x)), k])
+            x = self.relu(self.bn3(x))
 
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)

@@ -2,13 +2,13 @@
 # Configuration for SAN models
 
 epochs: 300
-batch_size: 100
+batch_size: 64
 eval_every: 10
 
 # Models
 encoder:
   sa_type: 'patch_hier'
-  layers: [10, 10, 10, 10]
+  layers: [2, 2, 2, 2]
   kernels: [3, 3, 3, 3]
   num_classes: 10
 

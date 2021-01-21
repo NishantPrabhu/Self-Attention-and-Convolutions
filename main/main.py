@@ -65,7 +65,7 @@ class Trainer:
         self.logger.write(run.get_url(), mode='info')
 
         # Check for any saved state in the output directory and load
-        if os.path.exists(os.path.join(self.output_dir, 'last.ckpt')):
+        if os.path.exists(os.path.join(self.output_dir, 'last_state.ckpt')):
             self.done_epochs = self.load_state()
             self.logger.print(f"Loaded saved state. Resuming from {self.done_epochs} epochs", mode="info")
             self.logger.write(f"Loaded saved state. Resuming from {self.done_epochs} epochs", mode="info")
@@ -196,7 +196,7 @@ class Trainer:
             # Average attention over pixels
             # Attention has size (1, h, w, heads, h, w)
             # After the line below, it'll have shape (heads, h, w)
-            attn = attn.mean(dim=0).view(-1, heads, h, w).mean(dim=0).detach().cpu().numpy()
+            attn = attn.mean(dim=0).view(-1, heads, h, w)[int(h * w//2)].detach().cpu().numpy()
             
             for i in range(attn.shape[0]):
                 ax = fig.add_subplot(layers+1, heads, count+heads)
@@ -208,7 +208,8 @@ class Trainer:
                 count += 1
 
         plt.tight_layout(pad=0.5)
-        plt.savefig(os.path.join(self.output_dir, 'attn_map_final.png'), pad_inches=0.05)
+        plt.show()
+        # plt.savefig(os.path.join(self.output_dir, 'attn_map_final.png'), pad_inches=0.05)
 
 
     def train(self):
@@ -301,7 +302,7 @@ class ResnetTrainer:
         self.logger.write(run.get_url(), mode='info')
 
         # Check for any saved state in the output directory and load
-        if os.path.exists(os.path.join(self.output_dir, 'last.ckpt')):
+        if os.path.exists(os.path.join(self.output_dir, 'last_state.ckpt')):
             self.done_epochs = self.load_state()
             self.logger.print(f"Loaded saved state. Resuming from {self.done_epochs} epochs", mode="info")
             self.logger.write(f"Loaded saved state. Resuming from {self.done_epochs} epochs", mode="info")
@@ -439,10 +440,10 @@ if __name__ == '__main__':
 
     # For training attention networks
     trainer = Trainer(args)
-    # trainer.visualize_attention(1)
+    trainer.visualize_attention(1)
 
     # For training a normal resnet
     # trainer = ResnetTrainer(args)
 
     # Train 
-    trainer.train()
+    # trainer.train()
