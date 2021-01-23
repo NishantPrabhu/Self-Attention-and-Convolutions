@@ -2,19 +2,23 @@
 """ 
 Attention mechanisms and networks.
 
-Authors: Nishant Prabhu, Mukund Varma T
+Acknowledgement:
+    Most of the code here has been adapted with very few changes from 
+    https://github.com/hszhao/SAN/blob/master/model/san.py
 """
-
 
 import math
 import torch 
 import torch.nn as nn 
 import torch.nn.functional as F
+from .modules import Subtraction, Subtraction2, Aggregation
 
 
 def position(H, W, nchw=True):
     '''
-    Positional embedding for SAN
+    Generates positional encoding for input tensor
+    Two planes, one with row positions equispaced between (-1, 1)
+    other with column positions equispaced between (-1, 1)
     '''
     if torch.cuda.is_available():
         loc_w = torch.linspace(-1, 1, W).cuda().unsqueeze(0).repeat(H, 1)
@@ -27,269 +31,185 @@ def position(H, W, nchw=True):
     if not nchw:
         return loc.permute(0, 2, 3, 1).contiguous()                                                 # (1, h, w, 2)
     else:
-        return loc                                                                                  # (1, 2, h, w)
+        return loc  
 
-
-def position_2d(H, W, nchw=True):
+def conv1x1(in_planes, out_planes, stride=1):
     '''
-    Positional embedding for SAN
+    Convolution with 1x1 kernel and no bias
     '''
-    if torch.cuda.is_available():
-        loc_w = torch.linspace(-1, 1, W).cuda().unsqueeze(0).repeat(H, 1)
-        loc_h = torch.linspace(-1, 1, H).cuda().unsqueeze(1).repeat(1, W)
-    else:
-        loc_w = torch.linspace(-1, 1, W).unsqueeze(0).repeat(H, 1)
-        loc_h = torch.linspace(-1, 1, H).unsqueeze(1).repeat(1, W)
-    loc = torch.cat([loc_w.unsqueeze(0), loc_h.unsqueeze(0)], dim=0).unsqueeze(0)                   # (1, 2, h, w)
-    
-    if not nchw:
-        return loc.permute(0, 2, 3, 1).contiguous()                                                 # (1, h, w, 2)
-    else:
-        return loc                                                                                  # (1, 2, h, w)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
-class PairwiseAttention(nn.Module):
-
-    def __init__(self, config):
-        super().__init__()
-        self.model_dim = config['model_dim']
-        self.pre_norm = config['pre_norm']
-
-        # Layers
-        self.query = nn.Conv2d(self.model_dim, self.model_dim, bias=False)
-        self.key = nn.Conv2d(self.model_dim, self.model_dim, bias=False)
-        self.conv_w = nn.Sequential(
-            nn.BatchNorm2d(2),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(2, self.model_dim, kernel_size=1, bias=False),
-            nn.BatchNorm2d(self.model_dim), 
-            nn.ReLU(inplace=True),
-            nn.Conv2d(self.model_dim, self.model_dim, kernel_size=1))
-        self.conv_p = nn.Conv2d(2, 2, kernel_size=1)
-        self.softmax = nn.Softmax(dim=-2)
-
-    def forward(self, x):
-        ''' Input has size (b, c, h, w) '''
-
-        batch_size, c, h, w = x.size()
-        q = self.query(x).view(batch_size, self.model_dim, -1)                                      # (bs, model_dim, n)
-        k = self.key(x).view(batch_size, self.model_dim, -1)                                        # (bs, model_dim, n)
-
-        # Compute attention score
-        attention_score = torch.einsum('bdij,bdkl->bdil', q.unqsueeze(-1), k.unsqueeze(-2))         # (bs, model_dim, n, n)
-        position_embedding = self.conv_p(position(h, w, True).view(1, 2, -1))                       # (bs, 2, n)
-
-
-class ChannelAttention(nn.Module):
+class Attention(nn.Module):
     ''' 
-    Channel wise self attention. I'm not sure if this is what the authors have also done
-    Refer https://arxiv.org/abs/2004.13621
+    Self attention layer for pairwise and patchwise attention.
     '''
 
-    def __init__(self, config):
-        
+    def __init__(self, sa_type, in_planes, rel_planes, out_planes, share_planes, kernel_size=3, stride=1, dilation=1):
         super().__init__()
-        self.model_dim = config['model_dim']
-        self.heads = config['num_heads']
-        self.pre_norm = config['pre_norm']
-
-        # Layers  
-        self.query = nn.Linear(self.model_dim, self.heads*self.model_dim, bias=False)
-        self.key = nn.Linear(self.model_dim, self.heads*self.model_dim, bias=False)
-        self.value = nn.Linear(self.model_dim, self.heads*self.model_dim, bias=False)
-        self.out = nn.Linear(self.heads*self.model_dim, self.model_dim, bias=False)
-        self.layer_norm = nn.LayerNorm(self.model_dim)
-        self.dropout = nn.Dropout(config.get('attention_dropout_prob', 0.1))
-
-
-    def normalize_(self, x):
-        ''' Input has shape (bs, c, h, w) '''
-        x = self.layer_norm(x.permute(0, 2, 3, 1).contiguous())
-        return x.permute(0, 3, 1, 2).contiguous()
-
-    
-    def forward(self, x, k=None):
-        ''' Input has size (bs, h, w, model_dim) '''
-
-        if len(x.size()) != 4:
-            raise ValueError(f'Input tensor should have dim == 4, got size {x.size()}')
-
-        bs, h, w, c = x.size()                                                                      # (bs, h, w, model_dim)
-        sqrt_normalizer = math.sqrt(self.model_dim)
-        if self.pre_norm:
-            x = self.layer_norm(x)
-
-        q = self.query(x).view(bs, -1, self.heads, self.model_dim).permute(0, 3, 1, 2)              # (bs, model_dim, n, heads)
-        k = self.key(x).view(bs, -1, self.heads, self.model_dim).permute(0, 3, 1, 2)                # (bs, model_dim, n, heads)
-        v = self.value(x).view(bs, -1, self.heads, self.model_dim).permute(0, 3, 1, 2)              # (bs, model_dim, n, heads)
-
-        attention_scores = torch.einsum('bdih,bdjh->bdij', [q, k])                                  # (bs, model_dim, n, n)
-        attention_probs = self.dropout(F.softmax(attention_scores/sqrt_normalizer, dim=-1))         # (bs, model_dim, n, n)
-        out = torch.einsum('bdij,bdjh->bdih', [attention_probs, v])                                 # (bs, model_dim, n, heads)
-        out = out.permute(0, 2, 3, 1).contiguous().view(bs, h, w, -1)                               # (bs, h, w, model_dim * heads)
-        out = self.out(out)                                                                         # (bs, h, w, model_dim)
-
-        # Residual connection
-        out = out + x
-        if not self.pre_norm:
-            out = self.layer_norm(out)                                                              # (bs, h, w, model_dim)
-
-        return out, attention_probs
-
-
-class Feedforward(nn.Module):
-
-    def __init__(self, config):
-
-        super().__init__()
-        model_dim = config['model_dim']
-        hidden_dim = config['ff_dim']
-        self.pre_norm = config['pre_norm']
-        self.relu = nn.ReLU()
+        self.sa_type = sa_type
+        self.stride = stride
+        self.kernel_size = kernel_size
+        self.in_planes = in_planes
+        self.rel_planes = rel_planes
+        self.hierarchical = 'hier' in self.sa_type
 
         # Layers
-        self.dense_1 = nn.Linear(model_dim, hidden_dim, bias=True)
-        self.dense_2 = nn.Linear(hidden_dim, model_dim, bias=True)
-        self.layer_norm = nn.LayerNorm(model_dim)
+        self.conv1 = nn.Conv2d(in_planes, rel_planes, kernel_size=1, bias=False)
+        self.conv2 = nn.Conv2d(in_planes, rel_planes, kernel_size=1, bias=False)
+        self.conv3 = nn.Conv2d(in_planes, out_planes, kernel_size=1, bias=False)
+        self.aggregation = Aggregation(kernel_size, stride, (dilation * (kernel_size-1) + 1)//2, dilation, pad_mode=1)
 
-
-    def normalize_(self, x):
-        ''' Input has shape (bs, h, w, c) '''
-        x = self.layer_norm(x.permute(0, 2, 3, 1).contiguous())                         
-        return x.permute(0, 3, 1, 2).contiguous()
-
-
-    def forward(self, x):
-        ''' Input has shape (bs, h, w, model_dim) '''
-
-        if self.pre_norm:
-            x = self.layer_norm(x)
-
-        out = self.dense_2(self.relu(self.dense_1(x)))
-        out = out + x
-
-        if not self.pre_norm:
-            out = self.layer_norm(out)
-
-        return out
-
-
-class EncoderBlock(nn.Module):
-
-    def __init__(self, config):
-        super().__init__()
-        self.attention = ChannelAttention(config)
-        self.feedfwd = Feedforward(config)
-
+        if 'pair' in self.sa_type:
+            self.conv_w = nn.Sequential(
+                nn.BatchNorm2d(rel_planes+2), nn.ReLU(inplace=True),
+                nn.Conv2d(rel_planes+2, rel_planes, kernel_size=1, bias=False),
+                nn.BatchNorm2d(rel_planes), nn.ReLU(inplace=True),
+                nn.Conv2d(rel_planes, out_planes//share_planes, kernel_size=1))
+            self.conv_p = nn.Conv2d(2, 2, kernel_size=1)
+            self.subtraction = Subtraction(kernel_size, stride, (dilation*(kernel_size-1)+1)//2, dilation, pad_mode=1)
+            self.subtraction2 = Subtraction2(kernel_size, stride, (dilation*(kernel_size-1)+1)//2, dilation, pad_mode=1)
+            self.softmax = nn.Softmax(dim=-2)
+        
+        elif 'patch' in self.sa_type:
+            self.conv_w = nn.Sequential(
+                nn.BatchNorm2d(rel_planes * (pow(kernel_size, 2) + 1)), nn.ReLU(inplace=True),
+                nn.Conv2d(rel_planes * (pow(kernel_size, 2) + 1), out_planes//share_planes, kernel_size=1, bias=False),
+                nn.BatchNorm2d(out_planes//share_planes), nn.ReLU(inplace=True),
+                nn.Conv2d(out_planes//share_planes, pow(kernel_size, 2) * out_planes // share_planes, kernel_size=1))
+            self.unfold_i = nn.Unfold(kernel_size=1, dilation=dilation, padding=0, stride=stride)
+            self.unfold_j = nn.Unfold(kernel_size=kernel_size, dilation=dilation, padding=0, stride=stride)
+            self.pad = nn.ReflectionPad2d(kernel_size//2)
+        
+        else:
+            raise ValueError(f'Unrecognized attention type {self.sa_type}')
+        
     def forward(self, x, k=None):
-        ''' 
-        In case of hierarchical attention, subsequent blocks
-        receive key tensor from first block
-        '''
-        x, att_scores = self.attention(x)
-        x = self.feedfwd(x)
-        return x, att_scores
+        q = self.conv1(x) 
+        v = self.conv3(x)
+        if k is None:
+            k = self.conv2(x)
+
+        if 'pair' in self.sa_type:
+            p = self.conv_p(position(x.size(2), x.size(3), nchw=True))
+            w = self.softmax(self.conv_w(torch.cat([self.subtraction2(q, k), self.subtraction(p).repeat(x.size(0), 1, 1, 1)], 1)))
+        
+        elif 'patch' in self.sa_type:
+            if self.stride != 1: 
+                q = self.unfold_i(q)
+            q = q.view(x.size(0), -1, 1, x.size(2)*x.size(3))
+            k_ = self.unfold_j(self.pad(k)).view(x.size(0), -1, 1, q.size(-1))
+            w = self.conv_w(torch.cat([q, k_], dim=1)).view(x.size(0), -1, pow(self.kernel_size, 2), q.size(-1))
+        
+        x = self.aggregation(v, w)
+        if self.hierarchical:
+            return x, k
+        else:
+            return x, None
 
 
-class FeaturePooling(nn.Module):
+class Bottleneck(nn.Module):
     ''' 
-    Either a resnet base (until end of first BasicBlock)
-    or invertible 2x2 downsampling
+    Building block for the encoder network
     '''
+
+    def __init__(self, sa_type, in_planes, rel_planes, mid_planes, out_planes, share_planes=8, kernel_size=3, stride=1):
+        super().__init__()
+        self.bn1 = nn.BatchNorm2d(in_planes)
+        self.attention = Attention(sa_type, in_planes, rel_planes, mid_planes, share_planes, kernel_size, stride)
+        self.bn2 = nn.BatchNorm2d(mid_planes)
+        self.conv = nn.Conv2d(mid_planes, out_planes, kernel_size=1)
+        self.relu = nn.ReLU(inplace=True)
+        self.stride = stride
+
+    def forward(self, inp):
+        x, k = inp
+        identity = x
+        out = self.relu(self.bn1(x))
+        out, k = self.attention(out, k)
+        out = self.relu(self.bn2(out))
+        out = self.conv(out)
+        out += identity
+        return out, k
+
     
+class Encoder(nn.Module):
+    '''
+    Module containing the attention layers. The code written here
+    is to be used with hierarchical self-attention only.
+    '''
+
     def __init__(self, config):
+        super().__init__()
+        sa_type = config['sa_type']
+        layers = config['layers']
+        kernels = config['kernels']
+        num_classes = config['num_classes']
+        self.hier = 'hier' in config['sa_type']
+        self.layers = layers
+
+        c = 256
+        self.conv_in, self.bn_in = conv1x1(3, c), nn.BatchNorm2d(c)
+        self.enc_layer = self._make_layer(sa_type, Bottleneck, c, layers[0], kernels[0])
+        self.conv0, self.bn0 = conv1x1(c, c), nn.BatchNorm2d(c)
+        self.conv1, self.bn1 = conv1x1(c, c), nn.BatchNorm2d(c)
+        self.conv2, self.bn2 = conv1x1(c, c), nn.BatchNorm2d(c)
+        self.conv3, self.bn3 = conv1x1(c, c), nn.BatchNorm2d(c)
+
+        self.relu = nn.ReLU(inplace=True)
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.avgpool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+        self.fc = nn.Linear(c, num_classes)
+
+
+    def _make_layer(self, sa_type, block, planes, blocks, kernel_size=3, stride=1):
+        layers = []
+        for _ in range(blocks):
+            layers.append(block(sa_type, planes, planes//16, planes//4, planes, 8, kernel_size, stride))
+        return nn.Sequential(*layers)
+
+
+    def forward(self, x):
+        k = None
+        x = self.relu(self.bn_in(self.conv_in(x)))
+
+        if self.hier:
+            x = self.conv0(x)
+            for _ in range(self.layers[0]):
+                x, k = self.enc_layer([x, k])
+            x = self.relu(self.bn0(x))
+            
+            x = self.conv1(x)
+            for _ in range(self.layers[1]):
+                x, k = self.enc_layer([x, k])
+            x = self.relu(self.bn1(x))
+
+            x = self.conv2(x)
+            for _ in range(self.layers[2]):
+                x, k = self.enc_layer([x, k])
+            x = self.relu(self.bn2(x))
+
+            x = self.conv3(x)
+            for _ in range(self.layers[3]):
+                x, k = self.enc_layer([x, k])
+            x = self.relu(self.bn3(x))
         
-        super().__init__()
-        self.config = config 
-
-        # Choice of downscaling method 
-        if config['pool_with_resnet']:
-            name = config.get('resnet', None)
-            assert name in list(MODEL_HELPER.keys()), f'Invalid resnet {name}'
-
-            base_model = MODEL_HELPER[name](pretrained=config['pretrained'])
-            res_layers = list(base_model.children())[0:4+config['block']]
-            self.bottom = nn.Sequential(*res_layers)
-
-            a = torch.rand((1, 3, 32, 32))
-            with torch.no_grad():
-                out = self.bottom(a)
-            in_features = out.size(1)
-
-        elif self.config['pool_downsample_size'] >= 1:
-            in_features = 3 * self.config['pool_downsample_size'] ** 2
-
-
-    def downsample_pooling(self, x, kernel):
-        ''' 
-        Used if not pooling with ResNet 
-        Takes in x (bs, h, w, c) and returns (bs, h//kernel, w//kernel, c*kernel*kernel)
-        '''
-        assert (not self.config['pool_with_resnet']) & (self.config['pool_downsample_size'] >= 1), "Something's wrong, I can feel it"
-        b, h, w, c = x.size()
-        y = x.contiguous().view(b, h, w//kernel, c*kernel)
-        y = y.permute(0, 2, 1, 3).contiguous()
-        y = y.view(b, w//kernel, h//kernel, c*kernel*kernel)
-        y = y.permute(0, 2, 1, 3).contiguous()
-        return y                                                    # Reference (bs, 3, 16, 16)
-
-
-    def forward(self, x):
-        ''' Input has size (bs, c, h, w) '''
-
-        if self.config['pool_with_resnet']:
-            features = self.bottom(x)                               # For resnet50 and CIFAR10, it has size (bs, 256, 8, 8)
-
-        elif self.config['pool_downsample_size'] >= 1:
-            x = x.permute(0, 2, 3, 1).contiguous()
-            features = self.downsample_pooling(x, self.config['pool_downsample_size'])
-
         else:
-            features = x.permute(0, 2, 3, 1).contiguous()
+            # This is different from the original implementation
+            # For a fair comparison, we did NOT use this; we used
+            # the origianl code from the official repository with
+            # small changes
 
-        return features
+            x, k = self.layer0([self.conv0(self.pool(x)), k])
+            x = self.relu(self.bn0(x))
+            x, k = self.layer1([self.conv1(self.pool(x)), k])
+            x = self.relu(self.bn1(x))
+            x, k = self.layer2([self.conv2(self.pool(x)), k])
+            x = self.relu(self.bn2(x))
+            x, k = self.layer3([self.conv3(self.pool(x)), k])
+            x = self.relu(self.bn3(x))
 
-
-class SAN(nn.Module):
-
-    def __init__(self, config):
-
-        super().__init__()
-        self.num_blocks = config['num_encoder_blocks']
-        self.model_dim = config['model_dim']
-
-        # Layers
-        self.blocks = nn.ModuleList([EncoderBlock(config) for _ in range(self.num_blocks)])
-        self.positional_features = nn.Linear(2, 2, bias=True)
-        self.feature_upscale = nn.Linear(14, self.model_dim, bias=True)
-
-    def forward(self, x, return_attn=False):
-        bs, h, w, c = x.size() 
-        p_enc = self.positional_features(position(h, w, False))                                     # Positional encoding
-        x = torch.cat([x, p_enc.repeat(x.size(0), 1, 1, 1)], dim=-1)                                # (bs, h, w, 14)
-        x = self.feature_upscale(x)                                                                 # (bs, h, w, model_dim)
-
-        attn_scores = {}                                                                            # Layerwise attention scores
-        for i in range(self.num_blocks):
-            x, att = self.blocks[i](x)
-            attn_scores[f'layer_{i}'] = att
-      
-        if return_attn:
-            return x, attn_scores
-        else:
-            return x
-
-
-class ClassificationHead(nn.Module):
-
-    def __init__(self, config):
-        super().__init__() 
-        self.fc = nn.Linear(config['model_dim'], config['num_classes'])
-
-    def forward(self, x):
-        ''' Input has size (bs, h, w, model_dim) '''
-
-        b, h, w, c = x.size()
-        x = x.view(b, -1, c).contiguous().mean(dim=1)                                               # (bs, model_dim)
-        out = self.fc(x)                                                                            # (bs, n_classes)
-        return out
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+        return x

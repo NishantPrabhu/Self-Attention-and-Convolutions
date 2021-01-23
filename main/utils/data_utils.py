@@ -51,6 +51,13 @@ def get_transform(config):
     return transforms.Compose(transform)
 
 
+def inverse_transform(img, mean, std):
+    inv_mean = [-mean[i]/std[i] for i in range(len(mean))]
+    inv_std = [1./std[i] for i in range(len(std))]
+    inv_transform = transforms.Compose([transforms.Normalize(inv_mean, inv_std)])
+    return inv_transform(img)
+
+
 def get_dataloader(config):
 
 	name = config.get('name', None)

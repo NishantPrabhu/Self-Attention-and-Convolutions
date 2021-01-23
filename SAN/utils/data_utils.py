@@ -12,10 +12,8 @@ import random
 
 
 DATASET_HELPER = {
-	'cifar10': datasets.CIFAR10,
-	'cifar100': datasets.CIFAR100
+    'cifar10': datasets.CIFAR10,
 }
-
 
 TRANSFORM_HELPER = {
     "color_jitter": transforms.ColorJitter,
@@ -52,22 +50,26 @@ def get_transform(config):
 
 
 def get_dataloader(config):
+    ''' 
+    Initializes train and evaluation data loaders with
+    specified configuration.
+    '''
 
-	name = config.get('name', None)
-	root = config.get('root', './')
-	train_transform = config.get('train_transform', None)
-	val_transform = config.get('val_transform', None)
-	assert (train_transform is not None) and (val_transform is not None), 'Some transforms were not found'
-	assert name in DATASET_HELPER.keys(), f'name should be one of {list(DATASET_HELPER.keys())}'
+    name = config.get('name', None)
+    root = config.get('root', './')
+    train_transform = config.get('train_transform', None)
+    val_transform = config.get('val_transform', None)
+    assert (train_transform is not None) and (val_transform is not None), 'Some transforms were not found'
+    assert name in DATASET_HELPER.keys(), f'name should be one of {list(DATASET_HELPER.keys())}'
 
-	train_transform = get_transform(train_transform)
-	val_transform = get_transform(val_transform)
+    train_transform = get_transform(train_transform)
+    val_transform = get_transform(val_transform)
 
-	# Obtain datasets
-	train_dset = DATASET_HELPER[name](root=root, train=True, transform=train_transform, download=True)
-	val_dset = DATASET_HELPER[name](root=root, train=False, transform=val_transform, download=True)
+    # Obtain datasets
+    train_dset = DATASET_HELPER[name](root=root, train=True, transform=train_transform, download=True)
+    val_dset = DATASET_HELPER[name](root=root, train=False, transform=val_transform, download=True)
 
-	# Loaders
-	train_loader = DataLoader(train_dset, batch_size=config['batch_size'], num_workers=4, shuffle=True)
-	val_loader = DataLoader(val_dset, batch_size=config['batch_size'], num_workers=4, shuffle=False)
-	return train_loader, val_loader
+    # Loaders
+    train_loader = DataLoader(train_dset, batch_size=config['batch_size'], num_workers=4, shuffle=True)
+    val_loader = DataLoader(val_dset, batch_size=config['batch_size'], num_workers=4, shuffle=False)
+    return train_loader, val_loader

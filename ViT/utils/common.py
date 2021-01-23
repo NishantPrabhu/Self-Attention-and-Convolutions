@@ -22,7 +22,9 @@ COLORS = {
 
 
 def count_parameters(model):
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+    ''' Counts number of trainable parameters in the model '''
+
+    return sum([p.numel() for p in model.parameters() if p.requires_grad])
 
 
 def progress_bar(progress=0, status="", bar_len=20):
@@ -132,7 +134,7 @@ def init_experiment(args, seed=420):
     config = open_config(args["config"])
 
     # Setup logging directory
-    output_dir = os.path.join(config["dataset"]['name'], config['encoder']['attention'], args["output"])
+    output_dir = os.path.join(config["dataset"]['name'], args["output"])
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     logger = Logger(output_dir)

@@ -18,8 +18,7 @@ import torch.nn.functional as F
 #    - gaussian_kernel_2d: Generates a 2d gaussian kernel
 # ===================================================================================================================================
 
-
-def guassian_kernel_2d(mean, std_inv, kernel_size=(3, 3)):
+def gaussian_kernel_2d(mean, std_inv, kernel_size=(3, 3)):
     """ 
     Generates a 2D gaussian kernel. 
 
@@ -41,13 +40,13 @@ def guassian_kernel_2d(mean, std_inv, kernel_size=(3, 3)):
     else:
         device = 'cpu'
 
-    if isinstance(size, number.Number):
-        width = height = int(size)
+    if isinstance(kernel_size, numbers.Number):
+        width = height = int(kernel_size)
     else:
-        width, height = size  
+        width, height = kernel_size  
 
     # Expand std to (2, 2) matrix and enforce PSD 
-    if isinstance(std_inv, number.Number):
+    if isinstance(std_inv, numbers.Number):
         std_inv = torch.Tensor([[std_inv, 0], [0, std_inv]], device=device)
     elif std_inv.dim() == 0:
         std_inv = torch.diag(std_inv.repeat(2))
@@ -84,11 +83,9 @@ def guassian_kernel_2d(mean, std_inv, kernel_size=(3, 3)):
 
 class BertSelfAttention(nn.Module):
     ''' 
-    Standard self attention mechanism for BERT 
+    Standard scaled dot-product self-attention mechanism 
     '''
-
     def __init__(self, config):
-        
         super().__init__()
         self.model_dim = config['model_dim']
         self.heads = config['num_heads']
@@ -98,11 +95,11 @@ class BertSelfAttention(nn.Module):
         # Layers  
         self.query = nn.Linear(self.model_dim, self.heads*self.model_dim, bias=False)
         self.key = nn.Linear(self.model_dim, self.heads*self.model_dim, bias=False)
-        self.value = nn.Linear(self.heads*self.model_dim, self.model_dim, bias=False)
+        self.value = nn.Linear(self.model_dim, self.heads*self.model_dim, bias=False)
+        self.out = nn.Linear(self.heads*self.model_dim, self.model_dim, bias=True)
         self.layer_norm = nn.LayerNorm(self.model_dim)
         self.dropout = nn.Dropout(config.get('attention_dropout_prob', 0.1))
 
-    
     def forward(self, x, k=None):
         ''' Input has size (bs, h, w, model_dim) '''
 
@@ -116,14 +113,15 @@ class BertSelfAttention(nn.Module):
             x = self.layer_norm(x)
 
         q = self.query(x).view(bs, self.heads, -1, self.model_dim)                                  # (bs, heads, n, model_dim)
-        if k is None:       # Won't be null when using hierarchical attention
+        v = self.value(x).view(bs, self.heads, -1, self.model_dim)                                  # (bs, heads, n, model_dim)
+        if k is None:       
             k = self.key(x).view(bs, self.heads, -1, self.model_dim)                                # (bs, heads, n, model_dim)
 
         attention_scores = torch.einsum('bhid,bhjd->bhij', [q, k])                                  # (bs, heads, n, n)
         attention_probs = F.softmax(attention_scores/sqrt_normalizer, dim=-1)                       # (bs, heads, n, n) softmaxed
         attention_probs = self.dropout(attention_probs)
 
-        out = torch.einsum('bhij,bjd->bhid', [attention_probs, x])                                  # (bs, heads, n, model_dim)
+        out = torch.einsum('bhij,bjd->bhid', [attention_probs, v])                                  # (bs, heads, n, model_dim)
         out = out.permute(0, 2, 1, 3).contiguous()                                                  # (bs, n, heads, model_dim)
         out = self.value(out.view(bs, -1, self.heads*self.model_dim))                               # (bs, n, model_dim)
 
@@ -133,9 +131,9 @@ class BertSelfAttention(nn.Module):
             out = self.layer_norm(out)
 
         if self.hierarchical:
-            return out, attention_probs, k
+            return out, attention_probs, k, v
         else:
-            return out, attention_probs, None
+            return out, attention_probs, None, None
 
 
 class Learned2dRelativeSelfAttention(nn.Module):
@@ -155,9 +153,7 @@ class Learned2dRelativeSelfAttention(nn.Module):
         Uses positional attention and adds content based attention to it.
         (X * W_Q * r) + (X * W_Q * W_K^T * X^T) 
     '''
-    
     def __init__(self, config):
-
         super().__init__()
         self.use_attention_data = config.get('use_attention_data', False)
         self.query_positional_score = config.get('query_positional_score', False)
@@ -194,8 +190,8 @@ class Learned2dRelativeSelfAttention(nn.Module):
         if self.use_attention_data:
             self.key = nn.Linear(self.model_dim, self.model_dim*self.heads, bias=False)
 
+        self.value = nn.Linear(self.heads*self.model_dim, self.model_dim)
         self.dropout = nn.Dropout(config.get('attention_dropout_prob', 0.1))
-        self.value = nn.Linear(self.model_dim*self.heads, self.model_dim)
         self.layer_norm = nn.LayerNorm(self.model_dim)
 
         # Relative positional indices
@@ -203,11 +199,10 @@ class Learned2dRelativeSelfAttention(nn.Module):
         relative_indices = deltas + max_position_embeddings - 1
         self.register_buffer('relative_indices', relative_indices)
 
-
     def compute_attention_scores(self, hidden_state, k=None):
         ''' 
         hidden_state has size (bs, h, w, model_dim)
-        Output attention has size (bs, w, h, num_heads, w, h)
+        Output attention probs have size (bs, h, w, num_heads, h, w)
         '''
         bs, h, w, _ = hidden_state.size()
         sqrt_normalizer = math.sqrt(self.model_dim)
@@ -218,7 +213,7 @@ class Learned2dRelativeSelfAttention(nn.Module):
 
         if self.use_attention_data and (k is None):
             k = self.key(hidden_state).view(bs, w, h, self.heads, self.model_dim)                   # (bs, w, h, heads, model_dim)
-
+        
         # Compute row and column embeddings based on position
         rel_idx = self.relative_indices[:w, :w].reshape(-1,)
         row_embeds = self.row_embeddings(rel_idx)                                                   # (w^2, position_embedding_size)
@@ -258,12 +253,11 @@ class Learned2dRelativeSelfAttention(nn.Module):
 
 
     def forward(self, hidden_state, k=None):
-
         bs, h, w, _ = hidden_state.size()
         if self.pre_norm:
             hidden_state = self.layer_norm(hidden_state)
 
-        attention_scores, k = self.compute_attention_scores(hidden_state, k)                         # (bs, h, w, heads, h, w)
+        attention_scores, k = self.compute_attention_scores(hidden_state, k)                        # (bs, h, w, heads, h, w)
         attn_size = attention_scores.size() 
         attention_scores = attention_scores.contiguous().view(*attn_size[:-2], -1)
         attention_probs = F.softmax(attention_scores, dim=-1)                                       # (bs, h, w, heads, n)
@@ -271,10 +265,10 @@ class Learned2dRelativeSelfAttention(nn.Module):
 
         if attn_size[0] != bs:
             attention_probs = attention_probs.expand(bs, *attn_size[1:])
-
+                
         attention_probs = self.dropout(attention_probs)                                             # (bs, h, w, heads, h, w)
         context = torch.einsum('bijhkl,bkld->bijhd', attention_probs, hidden_state)                 # (bs, h, w, heads, model_dim)
-        context = context.view(bs, h, w, -1).contiguous()                                           # (bs, h, w, heads*model_dim)
+        context = context.contiguous().view(bs, h, w, -1)                                           # (bs, h, w, heads*model_dim)
         output = self.value(context)                                                                # (bs, h, w, model_dim)
 
         # Residual connection
@@ -291,7 +285,6 @@ class Learned2dRelativeSelfAttention(nn.Module):
 class GaussianAttention(nn.Module):
 
     def __init__(self, config):
-
         super().__init__()
         self.attention_gaussian_blur_trick = config.get('attention_gaussian_blur_trick', False)
         self.attention_isotropic_gaussian = config.get('attention_isotropic_gaussian', False)
@@ -316,7 +309,7 @@ class GaussianAttention(nn.Module):
         self.attention_spreads = nn.Parameter(attention_spreads)
 
         # Other layers
-        self.value = nn.Linear(self.model_dim*self.heads, self.model_dim)
+        self.out = nn.Linear(self.heads*self.model_dim, self.model_dim, bias=True)
         self.layer_norm = nn.LayerNorm(self.model_dim)
 
         # If not using gaussian blur trick, define quadratic positional encoding
@@ -333,9 +326,7 @@ class GaussianAttention(nn.Module):
             self.register_buffer('R', R.float())
             self.dropout = nn.Dropout(config.get('attention_dropout_prob', 0.1))
 
-
     def get_heads_target_vectors(self):
-
         if self.attention_isotropic_gaussian:
             a = c = self.attention_spreads ** 2
             b = torch.zeros_like(self.attention_spreads)
@@ -345,9 +336,7 @@ class GaussianAttention(nn.Module):
 
         mu_1, mu_2 = self.attention_centers[:, 0], self.attention_centers[:, 1]                         # (num_heads,) each
         target = -0.5 * torch.stack([-2*(a*mu_1 + b*mu_2), -2*(c+mu_2 + b*mu_1), a, c, 2*b], dim=-1)
-        
         return target
-
 
     def get_attention_probs(self, height, width, k=None):
         '''
@@ -360,9 +349,7 @@ class GaussianAttention(nn.Module):
         attention_scores = torch.einsum('ijkld,hd->ijhkl', self.R[:height, :width, :height, :width, :], k)
         attention_probs = F.softmax(attention_scores.view(height, width, self.heads, -1), dim=-1)
         attention_probs = attention_probs.view(height, width, self.heads, height, width)
-
         return attention_probs, k
-
 
     def blurred_attention(self, X):
         ''' 
@@ -392,29 +379,25 @@ class GaussianAttention(nn.Module):
         out = F.conv2d(Y, weights, groups=in_channels, padding=(padding_height, padding_width))
 
         # Normalization
-        all_one_input = torch.ones(1, in_channels, height, width, device=X.device)
+        all_one_input = torch.ones(1, in_channels, h, w, device=X.device)
         normalizer = F.conv2d(all_one_input, weights, groups=in_channels, padding=(padding_height, padding_width))
         out /= normalizer
-
         return out.permute(0, 2, 3, 1).contiguous()
 
-
     def forward(self, hidden_state, k=None):
-
-        bs, h, w, _ = hidden_state.size()
+        bs, h, w, _ = hidden_state.size()                                                           # (bs, h, w, model_dim)
         if self.pre_norm:
             hidden_state = self.layer_norm(hidden_state)
 
         if not self.attention_gaussian_blur_trick:
             attention_probs, k = self.get_attention_probs(h, w, k)                                  # (h, w, heads, h, w)
             attention_probs = self.dropout(attention_probs)
-
             context = torch.einsum('ijhkl,bkld->bijhd', attention_probs, hidden_state)              # (bs, h, w, heads, model_dim)
             context = context.contiguous().view(bs, h, w, -1)                                       # (bs, h, w, heads*model_dim)
         else:
             context = self.blurred_attention(hidden_state)                                          # (bs, h, w, heads*model_dim)
 
-        output = self.value(context)                                                                # (bs, h, w, model_dim)
+        output = self.out(context)                                                                  # (bs, h, w, model_dim)
 
         # Residual connection
         output = output + hidden_state
@@ -425,4 +408,3 @@ class GaussianAttention(nn.Module):
             return output, attention_probs, k
         else:
             return output, attention_probs, None
-
