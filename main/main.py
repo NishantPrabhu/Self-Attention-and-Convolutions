@@ -13,7 +13,7 @@ import torch.nn as nn
 import matplotlib.pyplot as plt
 from datetime import datetime as dt 
 from models import attention, networks
-from utils import common, train_utils, data_utils
+from utils import common, train_utils, data_utils, losses
 
 
 
@@ -23,20 +23,13 @@ class Trainer:
     '''
 
     def __init__(self, args):
-
         # Initialize experiment
         self.config, self.output_dir, self.logger, self.device = common.init_experiment(args, seed=420)
 
         # Networks and optimizers
-        self.encoder = networks.BertEncoder(self.config['bert_encoder']).to(self.device)
+        self.encoder = networks.Encoder(self.config['encoder']).to(self.device)
         self.feature_pool = networks.FeaturePooling(self.config['feature_pooling']).to(self.device)
         self.clf_head = networks.ClassificationHead(self.config['clf_head']).to(self.device)
-
-        # Total parameters
-        enc_params = common.count_parameters(self.encoder)
-        fp_params = common.count_parameters(self.feature_pool)
-        clf_params = common.count_parameters(self.clf_head)
-        print(f"\nModel parameter count: {round((enc_params + fp_params + clf_params)/1e06, 2)}M\n")
 
         self.optim = train_utils.get_optimizer(
             config = self.config['optimizer'], 
@@ -45,6 +38,12 @@ class Trainer:
         self.scheduler, self.warmup_epochs = train_utils.get_scheduler(
             config = {**self.config['scheduler'], 'epochs': self.config['epochs']}, 
             optimizer = self.optim)
+
+        # Total parameters
+        enc_params = common.count_parameters(self.encoder)
+        fp_params = common.count_parameters(self.feature_pool)
+        clf_params = common.count_parameters(self.clf_head)
+        print(f"\nModel parameter count: {round((enc_params + fp_params + clf_params)/1e06, 2)}M\n")
 
         # Dataloaders
         self.train_loader, self.val_loader = data_utils.get_dataloader({
@@ -57,7 +56,7 @@ class Trainer:
             self.warmup_rate = self.optim.param_groups[0]['lr'] / self.warmup_epochs
 
         # Losses and performance monitoring
-        self.criterion = nn.NLLLoss()
+        self.criterion = losses.ClassificationLoss()
         self.best_val_acc = 0
         run = wandb.init('self-attention-cnn')
         
@@ -67,12 +66,10 @@ class Trainer:
         # Check for any saved state in the output directory and load
         if os.path.exists(os.path.join(self.output_dir, 'last_state.ckpt')):
             self.done_epochs = self.load_state()
-            self.logger.print(f"Loaded saved state. Resuming from {self.done_epochs} epochs", mode="info")
-            self.logger.write(f"Loaded saved state. Resuming from {self.done_epochs} epochs", mode="info")
+            self.logger.record(f"Loaded saved state. Resuming from {self.done_epochs} epochs", mode="info")
         else:
             self.done_epochs = 0
-            self.logger.print("No saved state found. Starting fresh", mode="info")
-            self.logger.write("No saved state found. Starting fresh", mode="info")
+            self.logger.record("No saved state found. Starting fresh", mode="info")
 
         # Check if a model has to be loaded from ckpt
         if args['load'] is not None:
@@ -109,9 +106,7 @@ class Trainer:
         return {'Loss': loss.item(), 'Accuracy': acc}
 
 
-    def save_state(self, epoch):
-        ''' For resuming from run breakages, etc '''
-        
+    def save_state(self, epoch):                                        # For resuming from run breakages, runtime errors, etc.
         state = {
             'epoch': epoch,
             'encoder': self.encoder.state_dict(),
@@ -124,7 +119,6 @@ class Trainer:
 
 
     def save_data(self):
-        
         data = {
             'encoder': self.encoder.state_dict(),
             'conv': self.feature_pool.state_dict(),
@@ -134,7 +128,6 @@ class Trainer:
 
 
     def load_model(self, expt_dir):
-
         try:
             ckpt = torch.load(os.path.join(expt_dir, 'best_model.ckpt'))
             self.encoder.load_state_dict(ckpt['encoder'])
@@ -146,7 +139,6 @@ class Trainer:
 
 
     def load_state(self):
-        
         last_state = torch.load(os.path.join(self.output_dir, 'last_state.ckpt'))
         done_epochs = last_state['epoch']-1
         self.encoder.load_state_dict(last_state['encoder'])
@@ -154,12 +146,10 @@ class Trainer:
         self.clf_head.load_state_dict(last_state['clf'])
         self.optim.load_state_dict(last_state['optim'])
         self.scheduler.load_state_dict(last_state['scheduler'])
-        
         return done_epochs
 
 
     def adjust_learning_rate(self, epoch):
-        
         if epoch < self.warmup_epochs:
             for group in self.optim.param_groups:
                 group['lr'] = 1e-12 + (epoch * self.warmup_rate)
@@ -169,7 +159,6 @@ class Trainer:
 
     def visualize_attention(self, epoch):
         ''' Generate attention on a batch of 100 images and plot them '''	
-
         batch = next(iter(self.val_loader))
         img = batch[0][1].unsqueeze(0).to(self.device)			
 
@@ -211,13 +200,10 @@ class Trainer:
         plt.show()
         # plt.savefig(os.path.join(self.output_dir, 'attn_map_final.png'), pad_inches=0.05)
 
-
     def train(self):
-
         print()
         # Training loop
         for epoch in range(self.config['epochs'] - self.done_epochs + 1):
-
             train_meter = common.AverageMeter()
             val_meter = common.AverageMeter()
             self.logger.record('Epoch [{:3d}/{}]'.format(epoch+1, self.config['epochs']), mode='train')
@@ -239,7 +225,6 @@ class Trainer:
 
             # Validation
             if epoch % self.config['eval_every'] == 0:
-
                 self.logger.record('Epoch [{:3d}/{}]'.format(epoch+1, self.config['epochs']), mode='val')
                 
                 for idx, batch in enumerate(self.val_loader):
@@ -266,9 +251,7 @@ class ResnetTrainer:
     ''' 
     For training a normal ResNet
     '''
-
     def __init__(self, args):
-
         # Initialize experiment
         self.config, self.output_dir, self.logger, self.device = common.init_experiment(args, seed=420)
 
@@ -326,7 +309,6 @@ class ResnetTrainer:
         # Correct predictions
         pred = out.argmax(dim=-1)	
         acc = pred.eq(labels.view_as(pred)).sum().item() / img.size(0)
-        
         return {'Loss': loss.item(), 'Accuracy': acc}
 
 
@@ -338,13 +320,10 @@ class ResnetTrainer:
         loss = self.criterion(out, labels)
         pred = out.argmax(dim=-1)	
         acc = pred.eq(labels.view_as(pred)).sum().item() / img.size(0)
-        
         return {'Loss': loss.item(), 'Accuracy': acc}
 
 
-    def save_state(self, epoch):
-        ''' For resuming from run breakages, etc '''
-        
+    def save_state(self, epoch):                                        # For resuming from run breakages, runtime errors, etc.     
         state = {
             'epoch': epoch,
             'model': self.model.state_dict(),
@@ -354,7 +333,6 @@ class ResnetTrainer:
 
 
     def save_data(self):
-        
         data = {
             'model': self.model.state_dict(),
         }
@@ -362,7 +340,6 @@ class ResnetTrainer:
 
 
     def load_state(self):
-        
         last_state = torch.load(os.path.join(self.output_dir, 'last_state.ckpt'))
         done_epochs = last_state['epoch'] - 1
         self.model.load_state_dict(last_state['model'])
@@ -371,7 +348,6 @@ class ResnetTrainer:
 
 
     def adjust_learning_rate(self, epoch):
-        
         if epoch < self.warmup_epochs:
             for group in self.optim.param_groups:
                 group['lr'] = 1e-12 + (epoch * self.warmup_rate)
@@ -382,11 +358,9 @@ class ResnetTrainer:
 
 
     def train(self):
-
         print()
         # Training loop
         for epoch in range(self.config['epochs'] - self.done_epochs + 1):
-
             train_meter = common.AverageMeter()
             val_meter = common.AverageMeter()
             self.logger.record('Epoch [{:3d}/{}]'.format(epoch+1, self.config['epochs']), mode='train')
@@ -408,7 +382,6 @@ class ResnetTrainer:
 
             # Validation
             if epoch % self.config['eval_every'] == 0:
-
                 self.logger.record('Epoch [{:3d}/{}]'.format(epoch+1, self.config['epochs']), mode='val')
                 
                 for idx, batch in enumerate(self.val_loader):
@@ -434,16 +407,22 @@ if __name__ == '__main__':
     # Parse arguments
     ap = argparse.ArgumentParser()
     ap.add_argument('-c', '--config', required=True, help='Path to configuration file')
-    ap.add_argument('-l', '--load', default=None, help='Path to output dir from which pretrained models will be loaded')
     ap.add_argument('-o', '--output', default=dt.now().strftime('%Y-%m-%d_%H-%M'), type=str, help='Path to output file')
+    ap.add_argument('-l', '--load', default=None, help='Path to output dir from which pretrained models will be loaded')
+    ap.add_argument('-t', '--task', default='train', type=str, help='Which task to perform, choose from (trian, resnet_train, viz)')
     args = vars(ap.parse_args())
 
-    # For training attention networks
+    # Initialize trainer 
     trainer = Trainer(args)
-    trainer.visualize_attention(1)
 
-    # For training a normal resnet
-    # trainer = ResnetTrainer(args)
+    if args['task'] == 'train':
+        trainer.train()
 
-    # Train 
-    # trainer.train()
+    elif args['task'] == 'resnet_train':
+        trainer = ResnetTrainer(args)
+
+    elif args['task'] == 'viz':
+        trainer.visualize_attention(1)
+
+    else:
+        raise NotImplementedError(f"Unrecognized task {args['task']}")

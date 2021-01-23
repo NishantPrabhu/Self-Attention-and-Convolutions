@@ -3,17 +3,15 @@
 
 epochs: 300
 batch_size: 100
-eval_every: 10
+eval_every: 10                                                  # Number of epochs after which evaluation is done
 
-# Models 
-# This has been added only for logging purposes
-bert_encoder:
-  attention: resnet
+encoder:
+  attention: resnet                                             # Only for logging routine to work, resnet doesn't use attention
 
 resnet: 
-  name: resnet18
-  classes: 10
-  zero_init_residual: False
+  name: resnet18                                                # ResNet model to use (choices: resnet18, resnet50, resnet101)
+  classes: 10                                                   # Number of classes in dataset (CIFAR-10 has 10)
+  zero_init_residual: False                                     # Initialization for some layers
 
 optimizer:
   name: sgd
@@ -25,12 +23,11 @@ scheduler:
   warmup_epochs: 10
 
 
-# Data
 dataset:
   name: cifar10
   root: data/cifar10
 
-  train_transform:
+  train_transform:                                              # Best results were seen for this sequence of augmentations
     random_crop:
       size: 32
       padding: 4

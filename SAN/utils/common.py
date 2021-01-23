@@ -157,7 +157,7 @@ def init_experiment(args, seed=420):
 
 def print_network(model, name=""):
     """
-    Pretty prints the model.
+    Pretty prints the model architecture.
     """
     print(name.rjust(35))
     print("-" * 70)

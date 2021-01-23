@@ -11,6 +11,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import models
 
+
 RESNETS = {
     'resnet18': models.resnet18,
     'resnet50': models.resnet50,
@@ -24,6 +25,9 @@ def gelu(x):
 
 
 class SelfAttention(nn.Module):
+    '''
+    Self-attention module
+    '''
 
     def __init__(self, config):
         super().__init__()
@@ -43,6 +47,7 @@ class SelfAttention(nn.Module):
 
     def forward(self, x, k=None):
         ''' Input will have size (bs, num_patches, model_dim) '''
+
         if len(x.size()) != 3:
             raise ValueError(f'Expected 3d tensor as input, got size {x.size()}')
 
@@ -56,11 +61,8 @@ class SelfAttention(nn.Module):
             k = self.key(x).view(bs, n, self.heads, self.model_dim).permute(0, 2, 1, 3)                 # (bs, heads, n, model_dim)
 
         attention_score = torch.einsum('bhid,bhjd->bhij', [q, k])                                       # (bs, heads, n, n)
-        if not self.attention_norm:
-            attention_score = attention_score / math.sqrt(self.model_dim)
+        attention_score = attention_score / math.sqrt(self.model_dim)
         attention_probs = self.dropout(F.softmax(attention_score, dim=-1))                              # (bs, heads, n, n)
-        if self.attention_norm:
-            attention_probs = attention_probs / (attention_probs.sum(dim=-2, keepdim=True) + 1e-10)
         context = torch.einsum('bhij,bhjd->bhid', [attention_probs, v])                                 # (bs, heads, n, model_dim)
         context = context.permute(0, 2, 1, 3).contiguous().view(bs, n, -1)                              # (bs, n, heads * model_dim)
         
@@ -99,6 +101,10 @@ class Feedforward(nn.Module):
 
 
 class PatchExtraction(nn.Module):
+    '''
+    Pre-processing module defines a prior on the feature maps using the
+    base of specified ResNet and extracts patches from those feature maps.
+    '''
 
     def __init__(self, config):
         super().__init__()
@@ -124,7 +130,6 @@ class PatchExtraction(nn.Module):
             out = self.resnet(rand)
             _, resnet_out_dim, resnet_h, resnet_w = out.size()
 
-        # Layers
         if not self.resnet_pooling:
             h, w = config['image_size']
             patch_size = h // config['patch_grid_size']
@@ -135,6 +140,7 @@ class PatchExtraction(nn.Module):
             feature_in_dim = resnet_out_dim * pow(patch_size, 2)
             self.num_patches = (resnet_h // patch_size) * (resnet_w // patch_size)
 
+        # Layers
         self.unfold = nn.Unfold(kernel_size=patch_size, stride=patch_size)
         self.feature_upscale = nn.Linear(feature_in_dim, self.model_dim)
         self.position_embedding = nn.Embedding(self.num_patches+1, self.model_dim)
@@ -142,10 +148,9 @@ class PatchExtraction(nn.Module):
     
     def forward(self, x):
         ''' 
-        If not pooling with resnet -- 
-        Input:                      (bs, channels, h, w)
-        Patch collection size:      (bs, k^2 * c, num_patches+1)
-        Positional encoding:        (bs, k^2 * c, num_patches+1)
+        If the feature maps generated have d channels ---
+            Input size:       (bs, channels, h, w)
+            Output size:      (bs, k^2 * d, num_patches + 1)
         '''
         # Extract resnet features if specified
         if self.resnet_pooling:
@@ -162,6 +167,7 @@ class PatchExtraction(nn.Module):
 
 
 class EncoderBlock(nn.Module):
+    ''' Building block for encoder '''
 
     def __init__(self, config):
         super().__init__()
@@ -175,6 +181,7 @@ class EncoderBlock(nn.Module):
 
 
 class Encoder(nn.Module):
+    ''' Encoder network '''
     
     def __init__(self, config):
         super().__init__()
@@ -207,6 +214,7 @@ class Encoder(nn.Module):
 
 
 class ClassificationHead(nn.Module):
+    ''' Linear classification head '''
 
     def __init__(self, config):
         super().__init__()

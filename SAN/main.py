@@ -9,7 +9,7 @@ import os
 import wandb
 import argparse
 import torch
-from models import san_networks
+from models import networks
 from datetime import datetime as dt
 from utils import common, train_utils, data_utils, losses
 
@@ -25,7 +25,7 @@ class Trainer:
         self.config, self.output_dir, self.logger, self.device = common.init_experiment(args, seed=420)
 
         # Networks and optimizers
-        self.encoder = san_networks.Encoder(self.config['encoder']).to(self.device)
+        self.encoder = networks.Encoder(self.config['encoder']).to(self.device)
 
         self.optim = train_utils.get_optimizer(
             config=self.config['optimizer'],
@@ -100,9 +100,7 @@ class Trainer:
         return {'Loss': loss.item(), 'Accuracy': acc}
 
 
-    def save_state(self, epoch):
-        ''' For resuming from run breakages, etc '''
-        
+    def save_state(self, epoch):                                # For resuming from run breakages, runtime errors, etc.
         state = {
             'epoch': epoch,
             'encoder': self.encoder.state_dict(),
@@ -113,7 +111,6 @@ class Trainer:
 
 
     def save_data(self):
-        
         data = {
             'encoder': self.encoder.state_dict(),
         }
@@ -121,7 +118,6 @@ class Trainer:
 
 
     def load_state(self):
-        
         last_state = torch.load(os.path.join(self.output_dir, 'last_state.ckpt'))
         done_epochs = last_state['epoch']-1
         self.encoder.load_state_dict(last_state['encoder'])
@@ -131,7 +127,6 @@ class Trainer:
 
 
     def adjust_learning_rate(self, epoch):
-        
         if epoch < self.warmup_epochs:
             for group in self.optim.param_groups:
                 group['lr'] = 1e-12 + (epoch * self.warmup_rate)
@@ -140,11 +135,9 @@ class Trainer:
 
 
     def train(self):
-
         print()        
         # Training loop
         for epoch in range(self.config['epochs'] - self.done_epochs + 1):
-
             train_meter = common.AverageMeter()
             val_meter = common.AverageMeter()
             self.logger.record('Epoch [{:3d}/{}]'.format(epoch+1, self.config['epochs']), mode='train')
@@ -166,7 +159,6 @@ class Trainer:
 
             # Validation
             if epoch % self.config['eval_every'] == 0:
-
                 self.logger.record('Epoch [{:3d}/{}]'.format(epoch+1, self.config['epochs']), mode='val')
                 
                 for idx, batch in enumerate(self.val_loader):

@@ -19,9 +19,7 @@ class Trainer:
     '''
     Helper class for training models, checkpointing and logging.
     '''
-
     def __init__(self, args):
-
         # Initialize experiment
         self.config, self.output_dir, self.logger, self.device = common.init_experiment(args, seed=420)
 
@@ -37,6 +35,13 @@ class Trainer:
         self.scheduler, self.warmup_epochs = train_utils.get_scheduler(
             config = {**self.config['scheduler'], 'epochs': self.config['epochs']}, 
             optimizer = self.optim)
+
+        # Parameter count
+        enc_params = common.count_parameters(self.encoder)
+        patch_params = common.count_parameters(self.patcher)
+        clf_params = common.count_parameters(self.clf_head)
+        total_params = (enc_params + patch_params + clf_params)
+        self.logger.record(f"Trainable parameters: {round(total_params / 1e06, 2)}M", mode='info')
 
         # Dataloaders
         self.train_loader, self.val_loader = data_utils.get_dataloader({
@@ -63,11 +68,12 @@ class Trainer:
             self.logger.write(f"Loaded saved state. Resuming from {self.done_epochs} epochs", mode="info")
         else:
             self.done_epochs = 0
-            self.logger.print(f"No saved state found. Starting fresh", mode="info")
-            self.logger.write(f"No saved state found. Starting fresh", mode="info")
+            self.logger.print("No saved state found. Starting fresh", mode="info")
+            self.logger.write("No saved state found. Starting fresh", mode="info")
 
 
     def train_one_step(self, data):
+        ''' Trains model on single batch of data '''
 
         img, labels = data[0].to(self.device), data[1].to(self.device)
         out = self.clf_head(self.encoder(self.patcher(img), return_attn=False))
@@ -86,6 +92,7 @@ class Trainer:
 
 
     def validate_one_step(self, data):
+        ''' Evaluates model on single batch of data '''
 
         img, labels = data[0].to(self.device), data[1].to(self.device)
         with torch.no_grad():
@@ -98,9 +105,7 @@ class Trainer:
         return {'Loss': loss.item(), 'Accuracy': acc}
 
 
-    def save_state(self, epoch):
-        ''' For resuming from run breakages, etc '''
-        
+    def save_state(self, epoch):                                        # For resuming from run breakages, runtime errors, etc.
         state = {
             'epoch': epoch,
             'encoder': self.encoder.state_dict(),
@@ -113,7 +118,6 @@ class Trainer:
 
 
     def save_data(self):
-        
         data = {
             'encoder': self.encoder.state_dict(),
             'patcher': self.patcher.state_dict(),
@@ -123,19 +127,16 @@ class Trainer:
 
 
     def load_state(self):
-        
         done_epochs = torch.load(os.path.join(self.output_dir, 'last_state.ckpt'))['epoch']-1
         self.encoder.load_state_dict(torch.load(os.path.join(self.output_dir, 'last_state.ckpt'))['encoder'])
         self.patcher.load_state_dict(torch.load(os.path.join(self.output_dir, 'last_state.ckpt'))['patcher']) 
         self.clf_head.load_state_dict(torch.load(os.path.join(self.output_dir, 'last_state.ckpt'))['clf'])
         self.optim.load_state_dict(torch.load(os.path.join(self.output_dir, 'last_state.ckpt'))['optim'])
         self.scheduler.load_state_dict(torch.load(os.path.join(self.output_dir, 'last_state.ckpt'))['scheduler'])
-        
         return done_epochs
 
 
     def adjust_learning_rate(self, epoch):
-        
         if epoch < self.warmup_epochs:
             for group in self.optim.param_groups:
                 group['lr'] = 1e-12 + (epoch * self.warmup_rate)
@@ -144,7 +145,8 @@ class Trainer:
 
 
     def train(self):
-
+        ''' Trains the model '''
+        
         print()
         # Training loop
         for epoch in range(self.config['epochs'] - self.done_epochs + 1):
@@ -181,8 +183,11 @@ class Trainer:
                 common.progress_bar(progress=1, status=val_meter.return_msg())
                 self.logger.write(val_meter.return_msg(), mode='val')
                 val_metrics = val_meter.return_metrics()
-                wandb.log({'Validation loss': val_metrics['Loss'], 'Validation accuracy': val_metrics['Accuracy'], 
-                            'Epoch': self.done_epochs+epoch+1})
+                wandb.log({
+                    'Validation loss': val_metrics['Loss'], 
+                    'Validation accuracy': val_metrics['Accuracy'], 
+                    'Epoch': self.done_epochs + epoch + 1
+                })
 
                 if val_metrics['Accuracy'] > self.best_val_acc:
                     self.best_val_acc = val_metrics['Accuracy']

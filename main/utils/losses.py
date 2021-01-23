@@ -11,8 +11,8 @@ import torch.nn.functional as F
 
 
 class ClassificationLoss(nn.Module):
-    '''
-    Nonlinear logloss with a label smoothing option
+    ''' 
+    Nonlinear logloss with a label-smoothing option
     '''
     def __init__(self, smoothing=None):
         super().__init__()

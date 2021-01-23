@@ -52,7 +52,6 @@ ACT_FN = {'gelu': gelu, 'relu': F.relu, 'swish': swish}
 class Feedforward(nn.Module):
 
     def __init__(self, config):
-
         super().__init__()
         model_dim = config['model_dim']
         hidden_dim = config['ff_dim']
@@ -65,24 +64,20 @@ class Feedforward(nn.Module):
         self.fc2 = nn.Linear(hidden_dim, model_dim)
         self.layer_norm = nn.LayerNorm(model_dim)
 
-
     def forward(self, x):
         ''' Input has shape (bs, ..., model_dim) '''
-
         if self.pre_norm:
             x = self.layer_norm(x)
         out = self.fc2(self.act(self.fc1(x)))
         out = out + x
         if not self.pre_norm:
             out = self.layer_norm(out)
-
         return out
 
 
 class EncoderBlock(nn.Module):
 
     def __init__(self, config):
-
         super().__init__()
         attn_name = config.get('attention', 'bert')
         
@@ -97,7 +92,6 @@ class EncoderBlock(nn.Module):
 
         self.feedfwd = Feedforward(config)
 
-
     def forward(self, x, k=None):
         ''' 
         In case of hierarchical attention, subsequent blocks
@@ -111,7 +105,6 @@ class EncoderBlock(nn.Module):
 class BertEncoder(nn.Module):
 
     def __init__(self, config):
-
         super().__init__()
         self.num_blocks = config['num_encoder_blocks']
         self.hierarchical = config['hierarchical_weight_sharing']
@@ -120,9 +113,7 @@ class BertEncoder(nn.Module):
         else:
             self.block = EncoderBlock(config)
 
-
     def forward(self, x, return_attn=False):
-
         attn_scores = {}                                            # Layerwise attention scores collector
         k = None                                                    # Initialize to None, it will change depending on hierarchical
 
@@ -143,12 +134,9 @@ class BertEncoder(nn.Module):
 
 class FeaturePooling(nn.Module):
     ''' 
-    Either a resnet base (until end of first BasicBlock)
-    or invertible 2x2 downsampling
+    Either a resnet base or invertible 2x2 downsampling
     '''
-    
     def __init__(self, config):
-        
         super().__init__()
         self.config = config 
 
@@ -178,16 +166,13 @@ class FeaturePooling(nn.Module):
         Used if not pooling with ResNet 
         Takes in x (bs, h, w, c) and returns (bs, h//kernel, w//kernel, c*kernel*kernel)
         '''
-
         assert (not self.config['pool_with_resnet']) & (self.config['pool_downsample_size'] > 1), "Something's wrong, I can feel it"
         b, h, w, c = x.size()
         y = x.contiguous().view(b, h, w//kernel, c*kernel)
         y = y.permute(0, 2, 1, 3).contiguous()
         y = y.view(b, w//kernel, h//kernel, c*kernel*kernel)
         y = y.permute(0, 2, 1, 3).contiguous()
-        
         return y
-
 
     def forward(self, x):
         ''' Input has size (bs, c, h, w) '''
@@ -210,16 +195,12 @@ class ClassificationHead(nn.Module):
     ''' 
     Transforms encoder features into class probabilities
     '''
-
     def __init__(self, config):
-
         super().__init__()
         self.fc = nn.Linear(config['model_dim'], config['num_classes'])
 
-
     def forward(self, x):
         ''' Input has size (bs, h, w, c) '''
-
         bs, c = x.size(0), x.size(-1)
         x = x.view(bs, -1, c).contiguous().mean(dim=1)
         out = self.fc(x)
@@ -230,7 +211,6 @@ class ResnetClassifier(nn.Module):
     ''' 
     Normal resnet for classification
     '''
-
     def __init__(self, config):
         super().__init__()
         name = config.get('name', None)
