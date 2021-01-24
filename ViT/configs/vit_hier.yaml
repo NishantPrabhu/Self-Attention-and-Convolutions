@@ -1,5 +1,5 @@
 
-# Configuration for Vision Transformer
+# Configuration for Vision Transformer (hierarchical)
 
 epochs: 100
 batch_size: 32
@@ -14,7 +14,7 @@ encoder:
   pre_norm: True
   attention_dropout_prob: 0.1
   attention_norm: False
-  hierarchical_weight_sharing: False
+  hierarchical_weight_sharing: True
 
 patcher:
   patch_grid_size: 16

@@ -171,8 +171,8 @@ class Trainer:
 
         # attn_scores is a dict with num_encoder_blocks items 
         # Each item value has size (batch_size, num_heads, num_pixels, num_pixels)
-        heads = self.config['bert_encoder']['num_heads']
-        layers = self.config['bert_encoder']['num_encoder_blocks']
+        heads = self.config['encoder']['num_heads']
+        layers = self.config['encoder']['num_encoder_blocks']
         fig = plt.figure(figsize=(11, 7))
         ax = fig.add_subplot(layers+1, heads, 5)
         ax.get_xaxis().set_ticks([])
