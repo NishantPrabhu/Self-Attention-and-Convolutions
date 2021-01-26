@@ -125,7 +125,7 @@ class Bottleneck(nn.Module):
     def forward(self, inp):
         x, k = inp
         identity = x
-        # out = self.relu(self.bn1(x))
+        out = self.relu(self.bn1(x))
         out, k = self.attention(x, k)
         out = self.relu(self.bn2(out))
         out = self.conv(out)
@@ -151,14 +151,10 @@ class Encoder(nn.Module):
         c = 256
         self.conv_in, self.bn_in = conv1x1(3, c), nn.BatchNorm2d(c)
         self.enc_layer = self._make_layer(sa_type, Bottleneck, c, layers[0], kernels[0])
-        # self.conv0, self.bn0 = conv1x1(c, c), nn.BatchNorm2d(c)
-        # self.conv1, self.bn1 = conv1x1(c, c), nn.BatchNorm2d(c)
-        # self.conv2, self.bn2 = conv1x1(c, c), nn.BatchNorm2d(c)
-        # self.conv3, self.bn3 = conv1x1(c, c), nn.BatchNorm2d(c)
-        # self.conv4, self.bn4 = conv1x1(c, c), nn.BatchNorm2d(c)
-        # self.conv5, self.bn5 = conv1x1(c, c), nn.BatchNorm2d(c)
-        # self.conv6, self.bn6 = conv1x1(c, c), nn.BatchNorm2d(c)
-        # self.conv7, self.bn7 = conv1x1(c, c), nn.BatchNorm2d(c)
+        self.conv0, self.bn0 = conv1x1(c, c), nn.BatchNorm2d(c)
+        self.conv1, self.bn1 = conv1x1(c, c), nn.BatchNorm2d(c)
+        self.conv2, self.bn2 = conv1x1(c, c), nn.BatchNorm2d(c)
+        self.conv3, self.bn3 = conv1x1(c, c), nn.BatchNorm2d(c)
 
         self.relu = nn.ReLU(inplace=True)
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
@@ -178,31 +174,26 @@ class Encoder(nn.Module):
         x = self.relu(self.bn_in(self.conv_in(x)))
 
         if self.hier:
-            # x = self.conv0(x)
-            for _ in range(self.layers[0]):
-                x, k = self.enc_layer([x, k])
-            # x = self.relu(self.bn0(x))
+            x = self.conv0(x)
+            x, k = self.enc_layer([x, k])
+            x = self.relu(self.bn0(x))
             
-            # x = self.conv1(x)
-            for _ in range(self.layers[1]):
-                x, k = self.enc_layer([x, k])
-            # x = self.relu(self.bn1(x))
+            x = self.conv1(x)
+            x, k = self.enc_layer([x, k])
+            x = self.relu(self.bn1(x))
 
-            # x = self.conv2(x)
-            for _ in range(self.layers[2]):
-                x, k = self.enc_layer([x, k])
-            # x = self.relu(self.bn2(x))
+            x = self.conv2(x)
+            x, k = self.enc_layer([x, k])
+            x = self.relu(self.bn2(x))
 
-            # x = self.conv3(x)
-            for _ in range(self.layers[3]):
-                x, k = self.enc_layer([x, k])
-            # x = self.relu(self.bn3(x))
+            x = self.conv3(x)
+            x, k = self.enc_layer([x, k])
+            x = self.relu(self.bn3(x))
         
         else:
-            # This is different from the original implementation
-            # For a fair comparison, we did NOT use this; we used
-            # the origianl code from the official repository with
-            # small changes
+            # This is different from the original implementation.
+            # We did NOT use this; we used the origianl code from 
+            # the official repository with small changes
 
             x, k = self.layer0([self.conv0(self.pool(x)), k])
             x = self.relu(self.bn0(x))

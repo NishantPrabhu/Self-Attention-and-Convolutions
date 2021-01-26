@@ -6,14 +6,20 @@ Authors: Mukund Varma T, Nishant Prabhu
 """
 
 import os 
+import pickle
 import wandb
 import argparse 
 import torch 
+import itertools
+import numpy as np
 import torch.nn as nn
+import torch.nn.functional as F
 import matplotlib.pyplot as plt
+from scipy import interpolate
 from datetime import datetime as dt 
 from models import attention, networks
 from utils import common, train_utils, data_utils, losses
+from matplotlib.patches import Rectangle
 
 
 
@@ -157,48 +163,61 @@ class Trainer:
             self.scheduler.step()
 
 
-    def visualize_attention(self, epoch):
-        ''' Generate attention on a batch of 100 images and plot them '''	
+    def visualize_attention(self, epoch, one_pix=True):
+        ''' Generate attention scores on 1 image and plot them '''
+
+        # Disable any dropout, Batch norms, etc.
+        self.encoder.eval()
+        self.feature_pool.eval()
         batch = next(iter(self.val_loader))
-        img = batch[0][1].unsqueeze(0).to(self.device)			
 
-        with torch.no_grad():
-            fvecs, attn_scores = self.encoder(self.feature_pool(img), return_attn=True)
-        _, h, w, _ = self.feature_pool(img).size() 
+        for k, idx in enumerate([16, 17]):
+            img = batch[0][idx].unsqueeze(0).to(self.device)			
+            with torch.no_grad():
+                fvecs, attn_scores = self.encoder(self.feature_pool(img), return_attn=True)
+            _, h, w, _ = self.feature_pool(img).size() 
 
-        # Obtain original image by inverting transform
-        img_normal = data_utils.inverse_transform(img.squeeze(0), [0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
+            # Obtain original image by inverting transform
+            img_normal = data_utils.inverse_transform(img.squeeze(0), [0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
 
-        # attn_scores is a dict with num_encoder_blocks items 
-        # Each item value has size (batch_size, num_heads, num_pixels, num_pixels)
-        heads = self.config['encoder']['num_heads']
-        layers = self.config['encoder']['num_encoder_blocks']
-        fig = plt.figure(figsize=(11, 7))
-        ax = fig.add_subplot(layers+1, heads, 5)
-        ax.get_xaxis().set_ticks([])
-        ax.get_yaxis().set_ticks([])
-        ax.imshow(img_normal.permute(1, 2, 0).cpu().numpy())
-        count = 1
+            # attn_scores is a dict with num_encoder_blocks items 
+            # Each item value has size (batch_size, num_heads, num_pixels, num_pixels)
+            heads = self.config['encoder']['num_heads']
+            layers = self.config['encoder']['num_encoder_blocks']
+            fig = plt.figure(figsize=(heads, 7))
+            ax = fig.add_subplot(layers+1, heads, 1)
+            ax.get_xaxis().set_ticks([])
+            ax.get_yaxis().set_ticks([])
+            ax.imshow(img_normal.permute(1, 2, 0).cpu().numpy())
+            count = 1
 
-        for j, (name, attn) in enumerate(attn_scores.items()):
+            for j, (name, attn) in enumerate(attn_scores.items()):
 
-            # Average attention over pixels
-            # Attention has size (1, h, w, heads, h, w)
-            # After the line below, it'll have shape (heads, h, w)
-            attn = attn.mean(dim=0).view(-1, heads, h, w)[int(h * w//2)].detach().cpu().numpy()
-            
-            for i in range(attn.shape[0]):
-                ax = fig.add_subplot(layers+1, heads, count+heads)
-                ax.get_xaxis().set_ticks([])
-                ax.get_yaxis().set_ticks([])
-                ax.imshow(attn[i], cmap='Reds')
-                if i == 0:
-                    ax.set_ylabel(f'Layer {j+1}', labelpad=10)
-                count += 1
+                # Average attention over pixels
+                # Attention has size (1, h, w, heads, h, w)
+                # After the line below, it'll have shape (heads, h, w)
+                attn = attn.squeeze(0).view(-1, heads, h, w)                               # (n, heads, h, w)
+                if not one_pix:
+                    attn = attn / attn.sum(dim=0, keepdim=True)                            # (n, heads, h, w)
+                attn = attn.contiguous().view(h*w, heads, -1)                              # (n, heads, n)
 
-        plt.tight_layout(pad=0.5)
-        plt.show()
-        # plt.savefig(os.path.join(self.output_dir, 'attn_map_final.png'), pad_inches=0.05)
+                if one_pix:
+                    attn = attn[:, :, 120].detach().cpu().numpy()                          # (n, heads)
+                else:
+                    attn = attn.mean(dim=-1).detach().cpu().numpy()                        # (n, heads)
+                
+                for i in range(attn.shape[1]):
+                    ax = fig.add_subplot(layers+1, heads, count+heads)
+                    ax.get_xaxis().set_ticks([])
+                    ax.get_yaxis().set_ticks([])
+                    ax.imshow(attn[:, i].reshape(h, w), cmap='Reds')
+                    if i == 0:
+                        ax.set_ylabel(f'Layer {j+1}', labelpad=10)
+                    count += 1
+
+            plt.tight_layout(pad=0.5)
+            plt.show()
+            # plt.savefig(os.path.join(f'./results/learned2d_hier_qc_16heads_avg_{k}.pdf'), pad_inches=0.05)
 
     def train(self):
         print()
@@ -409,7 +428,7 @@ if __name__ == '__main__':
     ap.add_argument('-c', '--config', required=True, help='Path to configuration file')
     ap.add_argument('-o', '--output', default=dt.now().strftime('%Y-%m-%d_%H-%M'), type=str, help='Path to output file')
     ap.add_argument('-l', '--load', default=None, help='Path to output dir from which pretrained models will be loaded')
-    ap.add_argument('-t', '--task', default='train', type=str, help='Which task to perform, choose from (trian, resnet_train, viz)')
+    ap.add_argument('-t', '--task', default='train', type=str, help='Which task to perform, choose from (train, resnet_train, viz)')
     args = vars(ap.parse_args())
 
     # Initialize trainer 
@@ -421,8 +440,11 @@ if __name__ == '__main__':
     elif args['task'] == 'resnet_train':
         trainer = ResnetTrainer(args)
 
+    elif args['task'] == 'viz_1':
+        trainer.visualize_attention(1, one_pix=True)
+
     elif args['task'] == 'viz':
-        trainer.visualize_attention(1)
+        trainer.visualize_attention(1, one_pix=False)
 
     else:
         raise NotImplementedError(f"Unrecognized task {args['task']}")
