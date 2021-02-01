@@ -1,7 +1,0 @@
-numpy
-wandb
-Pillow
-datetime
-matplotlib
-torchvision
-cupy-cuda101
