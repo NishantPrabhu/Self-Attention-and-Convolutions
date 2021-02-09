@@ -1,0 +1,50 @@
+
+# ResNet configuration
+# Authors: Mukund Varma T, Nishant Prabhu
+
+# General
+task: resnet
+dataset: cifar10
+batch_size: 64
+num_workers: 4
+epochs: 200
+eval_every: 10
+
+# Data Transforms
+train_transform:
+  random_crop:
+    size: [32, 32]
+  random_flip:
+  to_tensor:
+  normalize:
+
+val_transform:
+  random_crop:
+    size: [32, 32]
+  to_tensor:
+  normalize:
+
+# Data Loaders
+dataloaders:
+  train:
+    split: train
+    transform: train_transform
+    shuffle: True
+  val:
+    split: val
+    transform: val_transform
+    shuffle: False
+
+# Networks
+encoder:
+  zero_init_residual: False
+
+# Optimizers
+optim:
+  name: sgd
+  lr: 0.1
+  weight_decay: 1.e-04
+
+lr_scheduler:
+  name: cosine 
+  warmup_epochs: 0
