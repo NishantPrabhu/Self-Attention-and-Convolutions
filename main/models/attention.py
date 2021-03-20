@@ -211,8 +211,6 @@ class Learned2dRelativeSelfAttention(nn.Module):
 
         if self.use_attention_data and (k is None):
             k = self.key(hidden_state).view(bs, w, h, self.heads, self.model_dim)                   # (bs, w, h, heads, model_dim)
-
-        v = self.value(hidden_state).view(bs, w, h, self.heads, self.model_dim)                     # (bs, w, h, heads, model_dim)
         
         # Compute row and column embeddings based on position
         rel_idx = self.relative_indices[:w, :w].reshape(-1,)
@@ -248,14 +246,14 @@ class Learned2dRelativeSelfAttention(nn.Module):
             att_content_scores = att_content_scores/sqrt_normalizer
             att_content_scores = att_content_scores.permute(0, 2, 1, 3, 5, 4)                       # (bs, h, w, heads, h, w)
             attention_scores = attention_scores + att_content_scores                                # (bs, h, w, heads, h, w)
-        return attention_scores, k, v
+        return attention_scores, k
 
     def forward(self, hidden_state, k=None):
         bs, h, w, _ = hidden_state.size()
         if self.pre_norm:
             hidden_state = self.layer_norm(hidden_state)
 
-        attention_scores, k, v = self.compute_attention_scores(hidden_state, k)                        # (bs, h, w, heads, h, w)
+        attention_scores, k = self.compute_attention_scores(hidden_state, k)                     # (bs, h, w, heads, h, w)
         attn_size = attention_scores.size() 
         attention_scores = attention_scores.contiguous().view(*attn_size[:-2], -1)
         attention_probs = F.softmax(attention_scores, dim=-1)                                       # (bs, h, w, heads, n)
@@ -265,9 +263,9 @@ class Learned2dRelativeSelfAttention(nn.Module):
             attention_probs = attention_probs.expand(bs, *attn_size[1:])
                 
         attention_probs = self.dropout(attention_probs)                                             # (bs, h, w, heads, h, w)
-        context = torch.einsum('bijhkl,bklhd->bijhd', attention_probs, v)                 # (bs, h, w, heads, model_dim)
+        context = torch.einsum('bijhkl,bkld->bijhd', attention_probs, hidden_state)                # (bs, h, w, heads, model_dim)
         context = context.contiguous().view(bs, h, w, -1)                                           # (bs, h, w, heads*model_dim)
-        output = self.out(context)                                                                # (bs, h, w, model_dim)
+        output = self.value(context)                                                                # (bs, h, w, model_dim)
 
         # Residual connection
         output = output + hidden_state
@@ -307,7 +305,7 @@ class GaussianAttention(nn.Module):
         self.attention_spreads = nn.Parameter(attention_spreads)
 
         # Other layers
-        self.out = nn.Linear(self.heads*self.model_dim, self.model_dim, bias=True)
+        self.value = nn.Linear(self.heads*self.model_dim, self.model_dim, bias=True)
         self.layer_norm = nn.LayerNorm(self.model_dim)
 
         # If not using gaussian blur trick, define quadratic positional encoding
@@ -395,7 +393,7 @@ class GaussianAttention(nn.Module):
         else:
             context = self.blurred_attention(hidden_state)                                          # (bs, h, w, heads*model_dim)
 
-        output = self.out(context)                                                                  # (bs, h, w, model_dim)
+        output = self.value(context)                                                                # (bs, h, w, model_dim)
 
         # Residual connection
         output = output + hidden_state

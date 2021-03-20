@@ -8,10 +8,16 @@ Authors: Mukund Varma T, Nishant Prabhu
 import os
 import wandb
 import argparse
+import time
 import torch
-from models import networks
+import numpy as np
+import matplotlib.pyplot as plt
 from datetime import datetime as dt
+from models import networks
 from utils import common, train_utils, data_utils, losses
+from matplotlib.patches import Rectangle
+from PIL import Image
+from torchvision import transforms as T
 
 
 class Trainer:
@@ -68,11 +74,19 @@ class Trainer:
             self.done_epochs = 0
             self.logger.record("No saved state found. Starting fresh", mode="info")
 
+        # Load best model if any argument is provided
+        if 'load' in args.keys():
+            if os.path.exists(os.path.join(args['load'], 'best_model.ckpt')):
+                self.load_model(args['load'])
+                self.logger.print(f"Successfully loaded model at {args['load']}", mode='info')
+            else:
+                self.logger.print(f"No saved model found at {args['load']}; please check your input!", mode='info')
+
 
     def train_one_step(self, data):
 
         img, labels = data[0].to(self.device), data[1].to(self.device)
-        out = self.encoder(img)
+        out = self.encoder(img, False)
         
         # Loss and update
         self.optim.zero_grad()
@@ -91,7 +105,7 @@ class Trainer:
 
         img, labels = data[0].to(self.device), data[1].to(self.device)
         with torch.no_grad():
-            out = self.encoder(img)
+            out = self.encoder(img, False)
         
         loss = self.criterion(out, labels)
         pred = out.argmax(dim=-1)	
@@ -126,12 +140,106 @@ class Trainer:
         return done_epochs
 
 
+    def load_model(self, output_dir):
+        best = torch.load(os.path.join(output_dir, 'best_model.ckpt'))
+        self.encoder.load_state_dict(best['encoder'])
+
+
     def adjust_learning_rate(self, epoch):
         if epoch < self.warmup_epochs:
             for group in self.optim.param_groups:
                 group['lr'] = 1e-12 + (epoch * self.warmup_rate)
         else:
             self.scheduler.step()
+
+
+    def visualize_attention(self, epoch):
+        # Disable any dropout, Batch norms, etc.
+        self.encoder.eval()
+        # batch = next(iter(self.val_loader))
+        layers = len(self.config['encoder']['layers'])
+
+        # Load image
+        transform = T.Compose([T.ToTensor(), T.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])])
+        img = Image.open('imgs/bird_s_001914.png')
+        img = transform(img).unsqueeze(0)
+
+        for k, idx in enumerate([16, 17]):
+            img = img.to(self.device)			
+            with torch.no_grad():
+                fvecs, attn_scores = self.encoder(img, return_attn=True)            # attn_scores -> (bs, heads, kernel^2, h * w)
+            _, _, h, w = img.size()
+            _, heads, patches, _ = attn_scores['pass_1'].size()
+
+            # Obtain original image by inverting transform
+            img_normal = data_utils.inverse_transform(img.squeeze(0), [0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
+
+            # attn_scores is a dict with tensors of size (bs, heads, kernel^2, h * w) 
+            fig = plt.figure(figsize=(patches, 5))
+            ax = fig.add_subplot(layers+1, patches, 1)
+            ax.get_xaxis().set_ticks([])
+            ax.get_yaxis().set_ticks([])
+            ax.imshow(img_normal.permute(1, 2, 0).cpu().numpy())
+            count = 1
+
+            for l_idx in range(layers):
+                attn = attn_scores[f'pass_{l_idx+1}']
+                attn = attn.squeeze(0).mean(dim=0)                                              # (kernel^2, h * w) 
+                for i in range(patches):
+                    val = attn[i].view(h, w).detach().cpu().numpy()                             # (h, w)                
+                    ax = fig.add_subplot(layers+1, patches, count+patches)
+                    ax.get_xaxis().set_ticks([])
+                    ax.get_yaxis().set_ticks([])
+                    ax.imshow(val, cmap='Reds')
+                    count += 1
+
+            plt.tight_layout(pad=0.5)
+            # plt.show()
+            plt.savefig('/home/nishant/Desktop/pairwise_hier.pdf', pad_inches=0.05)
+
+
+    def throughput(self):
+        self.encoder.eval()
+        dummy = torch.randn(16, 3, 32, 32, dtype=torch.float).to(self.device)
+        repetitions = 100
+        total_time = 0
+        with torch.no_grad():
+            for rep in range(repetitions):
+                starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+                starter.record()
+                _ = self.encoder(dummy)
+                ender.record()
+                torch.cuda.synchronize()
+                curr_time = starter.elapsed_time(ender)/1000
+                total_time += curr_time
+        Throughput = (repetitions*16)/total_time
+        self.logger.print(f"Final throughput: {Throughput}")
+
+
+    def inference_time(self):
+        self.encoder.eval()
+        dummy = torch.randn(1, 3, 32, 32, dtype=torch.float).to(self.device)
+        starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+        repetitions = 300
+        timings = np.zeros((repetitions, 1))
+        
+        # GPU-WARM-UP
+        for _ in range(10):
+            _ = self.encoder(dummy)
+        
+        # MEASURE PERFORMANCE
+        with torch.no_grad():
+            for rep in range(repetitions):
+                starter.record()
+                _ = self.encoder(dummy)
+                ender.record()
+                # WAIT FOR GPU SYNC
+                torch.cuda.synchronize()
+                curr_time = starter.elapsed_time(ender)
+                timings[rep] = curr_time
+        mean_syn = np.sum(timings) / repetitions
+        std_syn = np.std(timings)
+        self.logger.print(f"Inference time: {mean_syn} +/- {std_syn}")
 
 
     def train(self):
@@ -184,10 +292,23 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('-c', '--config', required=True, help='Path to configuration file')
     ap.add_argument('-o', '--output', default=dt.now().strftime('%Y-%m-%d_%H-%M'), type=str, help='Path to output file')
+    ap.add_argument('-l', '--load', type=str, help='Name of the save directory from which best model should be loaded')
+    ap.add_argument('-t', '--task', type=str, default='train', help='Task to be performed, choose from (train, viz, time)')
     args = vars(ap.parse_args())
 
     # For training attention networks
     trainer = Trainer(args)
 
-    # Train 
-    trainer.train()
+    # Perform specified task
+    if args['task'] == 'train': 
+        trainer.train()
+
+    elif args['task'] == 'viz':
+        trainer.visualize_attention(1)
+
+    elif args['task'] == 'time':
+        trainer.throughput()
+        trainer.inference_time()
+
+    else:
+        raise ValueError(f"Unrecognized task {args['task']}")

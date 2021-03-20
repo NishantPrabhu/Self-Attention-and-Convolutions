@@ -102,10 +102,11 @@ class Attention(nn.Module):
             w = self.conv_w(torch.cat([q, k_], dim=1)).view(x.size(0), -1, pow(self.kernel_size, 2), q.size(-1))
         
         x = self.aggregation(v, w)
+        
         if self.hierarchical:
-            return x, k
+            return x, w, k
         else:
-            return x, None
+            return x, w, None
 
 
 class Bottleneck(nn.Module):
@@ -123,14 +124,14 @@ class Bottleneck(nn.Module):
         self.stride = stride
 
     def forward(self, inp):
-        x, k = inp
+        x, _, k = inp
         identity = x
         out = self.relu(self.bn1(x))
-        out, k = self.attention(x, k)
+        out, w, k = self.attention(x, k)
         out = self.relu(self.bn2(out))
         out = self.conv(out)
         out += identity
-        return out, k
+        return out, w, k
 
     
 class Encoder(nn.Module):
@@ -169,26 +170,28 @@ class Encoder(nn.Module):
         return nn.Sequential(*layers)
 
 
-    def forward(self, x):
+    def forward(self, x, return_attn=False):
         k = None
         x = self.relu(self.bn_in(self.conv_in(x)))
 
         if self.hier:
             x = self.conv0(x)
-            x, k = self.enc_layer([x, k])
+            x, w1, k = self.enc_layer([x, None, k])
             x = self.relu(self.bn0(x))
             
             x = self.conv1(x)
-            x, k = self.enc_layer([x, k])
+            x, w2, k = self.enc_layer([x, None, k])
             x = self.relu(self.bn1(x))
 
             x = self.conv2(x)
-            x, k = self.enc_layer([x, k])
+            x, w3, k = self.enc_layer([x, None, k])
             x = self.relu(self.bn2(x))
 
             x = self.conv3(x)
-            x, k = self.enc_layer([x, k])
+            x, w4, k = self.enc_layer([x, None, k])
             x = self.relu(self.bn3(x))
+
+            attn_scores = {'pass_1': w1, 'pass_2': w2, 'pass_3': w3, 'pass_4': w4}
         
         else:
             # This is different from the original implementation.
@@ -207,4 +210,8 @@ class Encoder(nn.Module):
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
         x = self.fc(x)
-        return x
+
+        if return_attn:
+            return x, attn_scores
+        else:
+            return x
