@@ -188,7 +188,8 @@ class Learned2dRelativeSelfAttention(nn.Module):
         if self.use_attention_data:
             self.key = nn.Linear(self.model_dim, self.model_dim*self.heads, bias=False)
 
-        self.value = nn.Linear(self.heads*self.model_dim, self.model_dim)
+        self.value = nn.Linear(self.model_dim, self.model_dim*self.heads, bias=False)
+        self.out = nn.Linear(self.model_dim*self.heads, self.model_dim)
         self.dropout = nn.Dropout(config.get('attention_dropout_prob', 0.1))
         self.layer_norm = nn.LayerNorm(self.model_dim)
 
@@ -262,8 +263,9 @@ class Learned2dRelativeSelfAttention(nn.Module):
         if attn_size[0] != bs:
             attention_probs = attention_probs.expand(bs, *attn_size[1:])
                 
-        attention_probs = self.dropout(attention_probs)                                             # (bs, h, w, heads, h, w)
-        context = torch.einsum('bijhkl,bkld->bijhd', attention_probs, hidden_state)                # (bs, h, w, heads, model_dim)
+        attention_probs = self.dropout(attention_probs)              
+        v = self.value(hidden_state).view(bs, w, h, self.heads, self.model_dim)               # (bs, h, w, heads, h, w)
+        context = torch.einsum('bijhkl,bklhd->bijhd', attention_probs, v)                # (bs, h, w, heads, model_dim)
         context = context.contiguous().view(bs, h, w, -1)                                           # (bs, h, w, heads*model_dim)
         output = self.value(context)                                                                # (bs, h, w, model_dim)
 
@@ -305,7 +307,7 @@ class GaussianAttention(nn.Module):
         self.attention_spreads = nn.Parameter(attention_spreads)
 
         # Other layers
-        self.value = nn.Linear(self.heads*self.model_dim, self.model_dim, bias=True)
+        self.out = nn.Linear(self.heads*self.model_dim, self.model_dim, bias=True)
         self.layer_norm = nn.LayerNorm(self.model_dim)
 
         # If not using gaussian blur trick, define quadratic positional encoding
@@ -393,7 +395,7 @@ class GaussianAttention(nn.Module):
         else:
             context = self.blurred_attention(hidden_state)                                          # (bs, h, w, heads*model_dim)
 
-        output = self.value(context)                                                                # (bs, h, w, model_dim)
+        output = self.out(context)                                                                # (bs, h, w, model_dim)
 
         # Residual connection
         output = output + hidden_state
