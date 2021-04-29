@@ -161,7 +161,7 @@ class Trainer:
 
         # Load image
         transform = T.Compose([T.ToTensor(), T.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])])
-        img = Image.open('imgs/bird_s_001914.png')
+        img = Image.open('imgs/{}'.format(os.listdir("imgs")[0]))
         img = transform(img).unsqueeze(0)
 
         for k, idx in enumerate([16, 17]):
