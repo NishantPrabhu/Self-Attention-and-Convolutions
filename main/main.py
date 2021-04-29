@@ -605,26 +605,29 @@ if __name__ == '__main__':
     ap.add_argument('-t', '--task', default='train', type=str, help='Which task to perform, choose from (train, resnet_train, viz)')
     args = vars(ap.parse_args())
 
-    # Initialize trainer
-    trainer = Trainer(args)
-
     if args['task'] == 'train':
+        trainer = Trainer(args)
         trainer.train()
 
     elif args['task'] == 'resnet_train':
         trainer = ResnetTrainer(args)
+        trainer.train()
 
     elif args['task'] == 'viz_1':
+        trainer = Trainer(args)
         trainer.visualize_attention(1, one_pix=True)
 
     elif args['task'] == 'viz':
+        trainer = Trainer(args)
         trainer.visualize_attention(1, one_pix=False)
 
     elif args['task'] == 'time':
+        trainer = Trainer(args)
         trainer.throughput()
         trainer.inference_time()
 
     elif args['task'] == 'gauss_viz':
+        trainer = Trainer(args)
         trainer.gaussian_visualization()
 
     else:
