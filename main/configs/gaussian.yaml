@@ -10,27 +10,27 @@ encoder:
   attention: gaussian                                           # Quadratic encoding as the paper calls it 
   ff_activation: relu                                           # Activation for hidden layer of MLP within attention layer
   num_encoder_blocks: 6                                         # Number of self-attention layers 
-  num_heads: 16                                                 # Number of heads for self-attention layers
-  model_dim: 256                                                # Working size for the encoder
-  ff_dim: 400                                                   # Size of hidden layer of MLP 
+  num_heads: 9                                                 # Number of heads for self-attention layers
+  model_dim: 400                                                # Working size for the encoder
+  ff_dim: 512                                                   # Size of hidden layer of MLP 
   pre_norm: False                                               # Whether LayerNorm is before the residual connection (post-norm default)
   gaussian_mu_init_noise: 2.0                                   # Initialization randomness for attention centers
   gaussian_sigma_init_noise: 0.01                               # Initialization randomness for attention spreads
   attention_dropout_prob: 0.1                                   # Dropout prob for attention probs
   attention_gaussian_blur_trick: False                          # Some way to bypass dot-product attention apparently (NOT USED)
-  attention_isotropic_gaussian: False                           # Whether distro of attention for each head remains isotropic (cI)
+  attention_isotropic_gaussian: True                         # Whether distro of attention for each head remains isotropic (cI)
   hierarchical_weight_sharing: False                            # Enable/disable hierarchical self-attention
 
 feature_pooling:                                         
   resnet: resnet50                                              # We are using 2x2 downsampling for pooling, so this is ignored
   block: 1                                                      # Number of BasicBlocks of resnet to include, if being used
   pretrained: False                                             # Whether resnet is pretrained
-  model_dim: 256                                                # Working size for the encoder
+  model_dim: 400                                                # Working size for the encoder
   pool_with_resnet: False                                       # Not pooling with resnet by default
   pool_downsample_size: 2                                       # Image is reversibly downsampled by factor of 2 (default)
 
 clf_head:
-  model_dim: 256                                                # in_features into the classification head
+  model_dim: 400                                                # in_features into the classification head
   num_classes: 10                                               # CIFAR-10 has 10 classes
 
 optimizer:

@@ -2,7 +2,7 @@
 # Configuration for learned 2D positional encoding setup
 
 epochs: 300
-batch_size: 100
+batch_size: 1
 eval_every: 10                                                  # Number of training epochs after which validation is done 
 
 # Models
@@ -19,18 +19,18 @@ encoder:
   max_position_embedding: 16                                    # Helps in setting up location map for positional encoding 
   position_embedding_size: -1                                   # By default (-1), it is same equal to model_dim
   attention_dropout_prob: 0.1                                   # Dropout prob for attention probs
-  hierarchical_weight_sharing: True                             # Enable/disable hierarchical self-attention
+  hierarchical_weight_sharing: False                             # Enable/disable hierarchical self-attention
 
 feature_pooling:                                         
   resnet: resnet50                                              # We are using 2x2 downsampling for pooling, so this is ignored
   block: 1                                                      # Number of BasicBlocks of resnet to include, if being used
   pretrained: False                                             # Whether resnet is pretrained
-  model_dim: 256                                                # Working size for the encoder
+  model_dim: 400                                                # Working size for the encoder
   pool_with_resnet: False                                       # Not pooling with resnet by default
   pool_downsample_size: 2                                       # Image is reversibly downsampled by factor of 2 (default)
 
 clf_head:
-  model_dim: 256                                                # in_features into the classification head
+  model_dim: 400                                                # in_features into the classification head
   num_classes: 10                                               # CIFAR-10 has 10 classes
 
 optimizer:
