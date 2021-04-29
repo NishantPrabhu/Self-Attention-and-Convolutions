@@ -188,8 +188,12 @@ class Learned2dRelativeSelfAttention(nn.Module):
         if self.use_attention_data:
             self.key = nn.Linear(self.model_dim, self.model_dim*self.heads, bias=False)
 
-        self.value = nn.Linear(self.model_dim, self.model_dim*self.heads, bias=False)
-        self.out = nn.Linear(self.model_dim*self.heads, self.model_dim)
+        if self.heads == 16:
+            self.value = nn.Linear(self.model_dim, self.model_dim*self.heads, bias=False)
+            self.out = nn.Linear(self.model_dim*self.heads, self.model_dim)
+        elif self.heads == 9:
+            self.value = nn.Linear(self.model_dim*self.heads, self.model_dim, bias=False)
+            
         self.dropout = nn.Dropout(config.get('attention_dropout_prob', 0.1))
         self.layer_norm = nn.LayerNorm(self.model_dim)
 
@@ -263,11 +267,17 @@ class Learned2dRelativeSelfAttention(nn.Module):
         if attn_size[0] != bs:
             attention_probs = attention_probs.expand(bs, *attn_size[1:])
                 
-        attention_probs = self.dropout(attention_probs)              
-        v = self.value(hidden_state).view(bs, w, h, self.heads, self.model_dim)               # (bs, h, w, heads, h, w)
-        context = torch.einsum('bijhkl,bklhd->bijhd', attention_probs, v)                # (bs, h, w, heads, model_dim)
-        context = context.contiguous().view(bs, h, w, -1)                                           # (bs, h, w, heads*model_dim)
-        output = self.value(context)                                                                # (bs, h, w, model_dim)
+        if self.heads == 16:
+            attention_probs = self.dropout(attention_probs)              
+            v = self.value(hidden_state).view(bs, w, h, self.heads, self.model_dim)                 # (bs, h, w, heads, h, w)
+            context = torch.einsum('bijhkl,bklhd->bijhd', attention_probs, v)                       # (bs, h, w, heads, model_dim)
+            context = context.contiguous().view(bs, h, w, -1)                                       # (bs, h, w, heads*model_dim)
+            output = self.out(context)                                                              # (bs, h, w, model_dim)
+        elif self.heads == 9:
+            attention_probs = self.dropout(attention_probs)              
+            context = torch.einsum('bijhkl,bkld->bijhd', attention_probs, hidden_state)            # (bs, h, w, heads, model_dim)
+            context = context.contiguous().view(bs, h, w, -1)                                       # (bs, h, w, heads*model_dim)
+            output = self.value(context)                                                            # (bs, h, w, model_dim)
 
         # Residual connection
         output = output + hidden_state

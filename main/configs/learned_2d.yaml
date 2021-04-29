@@ -2,7 +2,7 @@
 # Configuration for learned 2D positional encoding setup
 
 epochs: 300
-batch_size: 100
+batch_size: 1
 eval_every: 10                                                  # Number of training epochs after which validation is done 
 
 # Models
