@@ -102,7 +102,7 @@ class EncoderBlock(nn.Module):
         return x, att_scores, k
 
 
-class BertEncoder(nn.Module):
+class Encoder(nn.Module):
 
     def __init__(self, config):
         super().__init__()
