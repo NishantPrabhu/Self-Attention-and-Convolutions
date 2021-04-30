@@ -173,18 +173,18 @@ class Trainer:
         self.feature_pool.eval()
 
         # Load image
-        # transform = T.Compose([T.Resize(32), T.ToTensor(), T.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])])
-        # img = Image.open('imgs/accentor_s_001197.png')
-        # img = transform(img).unsqueeze(0)
+        transform = T.Compose([T.Resize(32), T.ToTensor(), T.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])])
+        img = Image.open('imgs/accentor_s_001197.png')
+        img = transform(img).unsqueeze(0).to(self.device)
 
         for batch in self.val_loader:
-            img = batch[0].to(self.device)
+            # img = batch[0].to(self.device)
             with torch.no_grad():
                 fvecs, attn_scores = self.encoder(self.feature_pool(img), return_attn=True)
             b, h, w, _ = self.feature_pool(img).size()
 
             # Obtain original image by inverting transform
-            img_normal = data_utils.inverse_transform(img[0], [0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
+            img_normal = data_utils.inverse_transform(img.squeeze(0), [0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
 
             # attn_scores is a dict with num_encoder_blocks items
             # Each item value has size (batch_size, num_heads, num_pixels, num_pixels)
