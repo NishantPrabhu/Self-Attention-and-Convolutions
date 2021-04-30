@@ -184,7 +184,7 @@ class Trainer:
             b, h, w, _ = self.feature_pool(img).size()
 
             # Obtain original image by inverting transform
-            img_normal = data_utils.inverse_transform(img.squeeze(0), [0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
+            img_normal = data_utils.inverse_transform(img[0], [0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
 
             # attn_scores is a dict with num_encoder_blocks items
             # Each item value has size (batch_size, num_heads, num_pixels, num_pixels)
@@ -212,9 +212,9 @@ class Trainer:
 
                 # Central pixel has flat index 120 for 16x16 image
                 if one_pix:
-                    attn = attn[:, 120, :, :].mean(dim=0).permute(1, 0).detach().cpu().numpy()          # (heads, n)
+                    attn = attn[:, 120, :, :].mean(dim=0).permute(1, 0).detach().cpu().numpy()[0]          # (heads, n)
                 else:
-                    attn = attn.mean(dim=-1).detach().cpu().numpy()                                     # (n, heads)
+                    attn = attn.mean(dim=-1).detach().cpu().numpy()[0]                                     # (n, heads)
 
                 for i in range(attn.shape[1]):
                     ax = fig.add_subplot(layers+1, heads, count+heads)
@@ -229,7 +229,7 @@ class Trainer:
                     count += 1
 
             plt.tight_layout(pad=0.5)
-            plt.savefig(os.path.join('/home/nishant/Desktop/l2d_qc_batchavg.pdf'), pad_inches=0.05)
+            plt.savefig("./viz_image.png", pad_inches=0.05)
             break
 
 
@@ -301,12 +301,7 @@ class Trainer:
         ax.grid(True, alpha=0.5)
 
         # query pixel
-        querry_pix = Rectangle(xy=(-0.5, -0.5),
-                            width=1,
-                            height=1,
-                            edgecolor="black",
-                            fc='None',
-                            lw=2)
+        querry_pix = Rectangle(xy=(-0.5, -0.5), width=1, height=1, edgecolor="black", fc='None', lw=2)
 
         ax.add_patch(querry_pix)
         ax.set_xlim(-width / 2, width / 2)
@@ -435,7 +430,7 @@ class Trainer:
                     self.save_data()
 
                 # Visualize attention
-                self.visualize_attention(epoch)
+                # self.visualize_attention(epoch)
 
         self.logger.record('Training complete!', mode='info')
 
