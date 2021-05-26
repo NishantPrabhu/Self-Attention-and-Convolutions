@@ -174,11 +174,10 @@ class Trainer:
 
         # Load image
         transform = T.Compose([T.Resize(32), T.ToTensor(), T.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])])
-        img = Image.open('imgs/accentor_s_001197.png')
+        img = Image.open('imgs/cat_s_000019.png')
         img = transform(img).unsqueeze(0).to(self.device)
 
         for batch in self.val_loader:
-            # img = batch[0].to(self.device)
             with torch.no_grad():
                 fvecs, attn_scores = self.encoder(self.feature_pool(img), return_attn=True)
             b, h, w, _ = self.feature_pool(img).size()
@@ -206,15 +205,13 @@ class Trainer:
                 # Attention has size (1, h, w, heads, h, w)
                 # After the line below, it'll have shape (heads, h, w)
                 attn = attn.view(b, -1, heads, h, w)                                                    # (n, heads, h, w)
-                if not one_pix:
-                    attn = attn / attn.sum(dim=0, keepdim=True)                                         # (b, n, heads, h, w)
                 attn = attn.contiguous().view(b, h*w, heads, -1)                                        # (b, n, heads, n)
 
                 # Central pixel has flat index 120 for 16x16 image
                 if one_pix:
-                    attn = attn[:, 120, :, :].mean(dim=0).permute(1, 0).detach().cpu().numpy()[0]          # (heads, n)
+                    attn = attn[:, 120, :, :][0].permute(1, 0).detach().cpu().numpy()                   # (n, heads)
                 else:
-                    attn = attn.mean(dim=-1).detach().cpu().numpy()[0]                                     # (n, heads)
+                    attn = attn.mean(dim=1).permute(0, 2, 1).detach().cpu().numpy()[0]                  # (n, heads)
 
                 for i in range(attn.shape[1]):
                     ax = fig.add_subplot(layers+1, heads, count+heads)
@@ -229,7 +226,7 @@ class Trainer:
                     count += 1
 
             plt.tight_layout(pad=0.5)
-            plt.savefig("./viz_image.png", pad_inches=0.05)
+            plt.savefig(os.path.join(self.output_dir, "viz_image.png"), pad_inches=0.05)
             break
 
 
