@@ -35,19 +35,39 @@ To train the models, clone this repository locally and switch to the directory o
   
 **Note.** Since each model has different possible tasks, we request the reader to inspect `main.py` within each folder for more information on available options for `--task`.
   
-For instance, to train the model from the main paper with Learned embedding based attention, run the following shell command in `main/`:
+For instance, to train the model from the main paper with Learned embedding based attention (9 heads), run the following shell command in `main/`:
 
 ```
-python3 main.py --config 'configs/learned_2d.yaml' --task 'train'
+python3 main.py --config 'configs/learned2d_withcontent_9heads.yaml' --task 'train'
 ```
 
 To visualize this trained model's attention as an average over all pixels of the image, run the following command in `main/`:
 
 ```
-python3 main.py --config 'configs/learned_2d.yaml' --task 'viz' --load 'output/dir/with/trained/model'
+python3 main.py --config 'configs/learned2d_withcontent_9heads.yaml' --task 'viz' --load 'output/dir/with/trained/model'
 ```
 
-### Task options
+## Experiment configurations
+Some details about the major settings within the provided configuration files.
+
+| Name of file                              | Description                                                               |
+|-------------------------------------------|---------------------------------------------------------------------------|
+| `gaussian_anisotropic.yaml`               | Gaussian encoding with non-isotropic attention heads                      |
+| `gaussian_isotropic.yaml`                 | Gaussian encoding with isotropic attention heads                          |
+| `learned2d_nocontent_9heads.yaml`         | Learned embedding without content attention, 9 attention heads            |
+| `learned2d_nocontent_16heads.yaml`        | Learned embedding without content attention, 16 attention heads           |
+| `learned2d_withcontent_9heads.yaml`       | Learned embedding with content attention, 9 attention heads               |
+| `learned2d_withcontent_16heads.yaml`      | Learned embedding with content attention, 16 attention heads              |
+| `learned2d_withcontent_9heads_hier.yaml`  | Hierarchical learned embedding with content attention, 9 attention heads  |
+| `learned2d_withcontent_16heads_hier.yaml` | Hierarchical learned embedding with content attention, 16 attention heads |
+| `resnet.yaml`                             | ResNet-18 model                                                           |
+| `san_pairwise_hier.yaml`                  | Hierarchical SAN (pairwise)                                               |
+| `san_patchwise_hier.yaml`                 | Hierarchical SAN (patchwise)                                              |
+| `vit.yaml`                                | Vanilla Vision Transformer                                                |
+| `vit_hier.yaml`                           | Hierarchical Vision Transformer                                           |
+
+
+## Task options
 The `--task` argument for different functionalities has been listed below.
 
 **For paper's experiments (`main`)**
