@@ -157,6 +157,11 @@ class Encoder(nn.Module):
         self.conv2, self.bn2 = conv1x1(c, c), nn.BatchNorm2d(c)
         self.conv3, self.bn3 = conv1x1(c, c), nn.BatchNorm2d(c)
 
+        self.layer0 = self._make_layer(sa_type, Bottleneck, c, layers[0], kernels[0])
+        self.layer1 = self._make_layer(sa_type, Bottleneck, c, layers[1], kernels[1])
+        self.layer2 = self._make_layer(sa_type, Bottleneck, c, layers[2], kernels[2])
+        self.layer3 = self._make_layer(sa_type, Bottleneck, c, layers[3], kernels[3])
+
         self.relu = nn.ReLU(inplace=True)
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
         self.avgpool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
@@ -195,16 +200,16 @@ class Encoder(nn.Module):
         
         else:
             # This is different from the original implementation.
-            # We did NOT use this; we used the origianl code from 
+            # We did NOT use this; we used the original code from 
             # the official repository with small changes
 
-            x, k = self.layer0([self.conv0(self.pool(x)), k])
+            x, _, k = self.layer0([self.conv0(self.pool(x)), None, k])
             x = self.relu(self.bn0(x))
-            x, k = self.layer1([self.conv1(self.pool(x)), k])
+            x, _, k = self.layer1([self.conv1(self.pool(x)), None, k])
             x = self.relu(self.bn1(x))
-            x, k = self.layer2([self.conv2(self.pool(x)), k])
+            x, _, k = self.layer2([self.conv2(self.pool(x)), None, k])
             x = self.relu(self.bn2(x))
-            x, k = self.layer3([self.conv3(self.pool(x)), k])
+            x, _, k = self.layer3([self.conv3(self.pool(x)), None, k])
             x = self.relu(self.bn3(x))
 
         x = self.avgpool(x)

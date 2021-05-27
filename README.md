@@ -61,6 +61,8 @@ Some details about the major settings within the provided configuration files.
 | `learned2d_withcontent_9heads_hier.yaml`  | Hierarchical learned embedding with content attention, 9 attention heads  |
 | `learned2d_withcontent_16heads_hier.yaml` | Hierarchical learned embedding with content attention, 16 attention heads |
 | `resnet.yaml`                             | ResNet-18 model                                                           |
+| `san_pairwise.yaml`                       | Vanilla SAN (pairwise)                                                    |
+| `san_patchwise.yaml`                      | Vanilla SAN (patchwise)                                                   |
 | `san_pairwise_hier.yaml`                  | Hierarchical SAN (pairwise)                                               |
 | `san_patchwise_hier.yaml`                 | Hierarchical SAN (patchwise)                                              |
 | `vit.yaml`                                | Vanilla Vision Transformer                                                |
