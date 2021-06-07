@@ -30,7 +30,8 @@ To train the models, clone this repository locally and switch to the directory o
 
   - `--config`: Path to configuration file of the experiment to be run.
   - `--output`: Directory in which all checkpoints and model outputs will be placed. Auto-generated with current datetime if not specified by user.
-  - `--load`: (Optional) Path to the output directory containing a trained model, named as `best_model.ckpt`.
+  - `--load`: (Optional) Path to the output directory containing a trained model, named as `best_model.ckpt`. The output directory is overwritten to this directory if specified.
+  - `--image`: (Optional) Path to the image on which any visualization will be performed. Defaults to `imgs/cat_s_000019.png`.
   - `--task`: Primarily used to choose between training the model, visualizing attention of trained models or computing inference time.
   
 **Note.** Since each model has different possible tasks, we request the reader to inspect `main.py` within each folder for more information on available options for `--task`.
