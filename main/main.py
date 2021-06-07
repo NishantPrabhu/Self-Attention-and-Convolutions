@@ -32,6 +32,7 @@ class Trainer:
 
     def __init__(self, args):
         # Initialize experiment
+        self.args = args
         self.config, self.output_dir, self.logger, self.device = common.init_experiment(args, seed=420)
 
         # Networks and optimizers
@@ -82,6 +83,7 @@ class Trainer:
         # Check if a model has to be loaded from ckpt
         if args['load'] is not None:
             self.load_model(args['load'])
+            self.output_dir = args['load']
 
 
     def train_one_step(self, data):
@@ -174,7 +176,7 @@ class Trainer:
 
         # Load image
         transform = T.Compose([T.Resize(32), T.ToTensor(), T.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])])
-        img = Image.open('imgs/cat_s_000019.png')
+        img = Image.open(self.args["image"])
         img = transform(img).unsqueeze(0).to(self.device)
 
         for batch in self.val_loader:
@@ -592,9 +594,10 @@ if __name__ == '__main__':
     # Parse arguments
     ap = argparse.ArgumentParser()
     ap.add_argument('-c', '--config', required=True, help='Path to configuration file')
-    ap.add_argument('-o', '--output', default=dt.now().strftime('%Y-%m-%d_%H-%M'), type=str, help='Path to output file')
+    ap.add_argument('-o', '--output', default=dt.now().strftime('%Y-%m-%d_%H-%M'), type=str, help='Path to output directory')
     ap.add_argument('-l', '--load', default=None, help='Path to output dir from which pretrained models will be loaded')
-    ap.add_argument('-t', '--task', default='train', type=str, help='Which task to perform, choose from (train, resnet_train, viz)')
+    ap.add_argument('-i', '--image', default="imgs/cat_s_000019.png", help='Path to image on which attention visualization will be performed')
+    ap.add_argument('-t', '--task', default='train', type=str, help='Task to perform, choose from (train, resnet_train, viz, viz_1, gauss_viz)')
     args = vars(ap.parse_args())
 
     if args['task'] == 'train':
@@ -606,10 +609,14 @@ if __name__ == '__main__':
         trainer.train()
 
     elif args['task'] == 'viz_1':
+        if args['load'] is None:
+            raise NotImplementedError("Please load a trained model using --load for visualization tasks")
         trainer = Trainer(args)
         trainer.visualize_attention(1, one_pix=True)
 
     elif args['task'] == 'viz':
+        if args['load'] is None:
+            raise NotImplementedError("Please load a trained model using --load for visualization tasks")
         trainer = Trainer(args)
         trainer.visualize_attention(1, one_pix=False)
 

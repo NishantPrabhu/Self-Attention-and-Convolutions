@@ -28,6 +28,7 @@ class Trainer:
     def __init__(self, args):
 
         # Initialize experiment
+        self.args = args
         self.config, self.output_dir, self.logger, self.device = common.init_experiment(args, seed=420)
 
         # Networks and optimizers
@@ -78,6 +79,7 @@ class Trainer:
         if args["load"] is not None:
             if os.path.exists(os.path.join(args['load'], 'best_model.ckpt')):
                 self.load_model(args['load'])
+                self.output_dir = args['load']
                 self.logger.print(f"Successfully loaded model at {args['load']}", mode='info')
             else:
                 self.logger.print(f"No saved model found at {args['load']}; please check your input!", mode='info')
@@ -161,7 +163,7 @@ class Trainer:
 
         # Load image
         transform = T.Compose([T.ToTensor(), T.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])])
-        img = Image.open('imgs/{}'.format(os.listdir("imgs")[0]))
+        img = Image.open(self.args["image"])
         img = transform(img).unsqueeze(0)
 
         for k, idx in enumerate([16, 17]):
@@ -194,8 +196,7 @@ class Trainer:
                     count += 1
 
             plt.tight_layout(pad=0.5)
-            # plt.show()
-            plt.savefig('/home/nishant/Desktop/pairwise_hier.pdf', pad_inches=0.05)
+            plt.savefig(os.path.join(self.output_dir, "viz_image.png"), pad_inches=0.05)
 
 
     def throughput(self):
@@ -293,6 +294,7 @@ if __name__ == '__main__':
     ap.add_argument('-c', '--config', required=True, help='Path to configuration file')
     ap.add_argument('-o', '--output', default=dt.now().strftime('%Y-%m-%d_%H-%M'), type=str, help='Path to output file')
     ap.add_argument('-l', '--load', type=str, help='Name of the save directory from which best model should be loaded')
+    ap.add_argument('-i', '--image', default="imgs/cat_s_000019.png", help='Path to image on which attention visualization will be performed')
     ap.add_argument('-t', '--task', type=str, default='train', help='Task to be performed, choose from (train, viz, time)')
     args = vars(ap.parse_args())
 
@@ -304,6 +306,8 @@ if __name__ == '__main__':
         trainer.train()
 
     elif args['task'] == 'viz':
+        if args['load'] is None:
+            raise NotImplementedError("Please load a trained model using --load for visualization tasks")
         trainer.visualize_attention(1)
 
     elif args['task'] == 'time':
