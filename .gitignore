@@ -10,3 +10,4 @@ __pycache__/
 .vscode/
 temp/
 all_files/
+data_to_plot/

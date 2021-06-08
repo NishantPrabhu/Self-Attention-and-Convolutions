@@ -90,4 +90,20 @@ The `--task` argument for different functionalities has been listed below.
   - `train`: Train any of the models except a ResNet model.
   - `viz_1`: Visualize attention patterns for a single query pixel in an image. To use this, please create a directory `imgs/` inside `ViT/` and add one image to it.
   - `viz`: Visualize average attention patterns in an image. To use this, please create a directory `imgs/` inside `ViT/` and add one image to it.
-  - `time`: Compute the average throughput and inference time of the model.
+  - `time`: Compute the average throughput and inference time of
+  
+
+## Comparing model performance
+After the models have been trained, one can plot the evolution of train or validation accuracy/loss using `plot_performance.py`. To do so, collect the output directories (containing `trainlogs.txt` in them) into a folder inside `Self-Attention-and-Convolutions`. Then, run the python script using the following CLI arguments.
+
+| Argument   | Default value    | Description                                                                                           |
+|------------|------------------|-------------------------------------------------------------------------------------------------------|
+| `--root`   | `./data_to_plot` | Path to folder containing the output directories from experiments whose performance is to be plotted. |
+| `--which`  | `val`            | Whether to plot train metrics (`train`) or validation metrics (`val`)                                 |
+| `--metric` | `accuracy`       | The quantity to plot for chosen experiments, whether loss (`loss`) or accuracy (`accuracy`)           |
+
+For example, to plot validation accuracies for experiments stored in `Self-Attention-and-Convolutions/data_to_plot/`, run the following command inside `Self-Attention-and-Convolutions`:
+
+```
+python3 plot_performance.py --root './data_to_plot' --which 'val' --metric 'accuracy'
+```
