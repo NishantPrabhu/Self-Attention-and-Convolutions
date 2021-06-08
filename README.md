@@ -107,3 +107,5 @@ For example, to plot validation accuracies for experiments stored in `Self-Atten
 ```
 python3 plot_performance.py --root './data_to_plot' --which 'val' --metric 'accuracy'
 ```
+
+Note that the series in the plot will carry the names of the experiment folders collected inside `--root` in the legend. Please rename the experiment folders in accordance with the names required on the plot legend.
