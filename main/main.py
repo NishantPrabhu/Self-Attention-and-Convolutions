@@ -81,9 +81,13 @@ class Trainer:
             self.logger.record("No saved state found. Starting fresh", mode="info")
 
         # Check if a model has to be loaded from ckpt
-        if args['load'] is not None:
-            self.load_model(args['load'])
-            self.output_dir = args['load']
+        if "load" in args.keys() and args['load'] is not None:
+            if os.path.exists(os.path.join(args["load"], "best_model.ckpt")):
+                self.load_model(args['load'])
+                self.output_dir = args['load']
+                self.logger.print(f"Successfully loaded model at {args['load']}", mode='info')
+            else:
+                self.logger.print(f"No saved model found at {args['load']}; please check your input!", mode='info')
 
 
     def train_one_step(self, data):
@@ -143,7 +147,6 @@ class Trainer:
             self.encoder.load_state_dict(ckpt['encoder'])
             self.feature_pool.load_state_dict(ckpt['conv'])
             self.clf_head.load_state_dict(ckpt['clf'])
-            print('[INFO] Successfully loaded saved model!')
         except Exception as e:
             print(e)
 

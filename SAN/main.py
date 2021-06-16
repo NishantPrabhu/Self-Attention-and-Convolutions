@@ -76,7 +76,7 @@ class Trainer:
             self.logger.record("No saved state found. Starting fresh", mode="info")
 
         # Load best model if any argument is provided
-        if args["load"] is not None:
+        if "load" in args.keys() and args["load"] is not None:
             if os.path.exists(os.path.join(args['load'], 'best_model.ckpt')):
                 self.load_model(args['load'])
                 self.output_dir = args['load']

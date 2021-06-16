@@ -78,7 +78,7 @@ class Trainer:
             self.logger.write("No saved state found. Starting fresh", mode="info")
 
         # Load model if specified
-        if 'load' in args.keys():
+        if 'load' in args.keys() and args["load"] is not None:
             if os.path.exists(os.path.join(args['load'], 'best_model.ckpt')):
                 self.load_model(args['load'])
                 aelf.output_dir = args['load']
